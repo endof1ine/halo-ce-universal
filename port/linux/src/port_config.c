@@ -133,6 +133,17 @@ static const struct config_setting config_settings[] =
 		_environment_value, _platform_all,
 		"The scoreboard panel's colour: \"red, green, blue, alpha\", each 0 to 255\n"
 		"(alpha 0 is see-through, 255 solid)." },
+	{ "display.lock_30fps", _config_boolean, "false", "HALO_LOCK_30FPS", _environment_value, _platform_switch,
+		"30 frames a second with vsync, steadier than a rate that varies below\n"
+		"60, and lighter on the battery." },
+	{ "display.movies", _config_boolean, "true", "HALO_MOVIES", _environment_value, _platform_switch,
+		"Play the game's movies (the intro, the attract mode, the credits); off\n"
+		"skips them, as when their files are missing." },
+	{ "display.dynamic_resolution", _config_boolean, "false", "HALO_DYNAMIC_RESOLUTION", _environment_value,
+		_platform_switch,
+		"Lower the resolution a step while the GPU holds the frame rate back, and\n"
+		"raise it again when it can (between the Xbox's 480 lines and the render\n"
+		"scale set)." },
 
 	{ "audio.enabled", _config_boolean, "true", "HALO_NO_AUDIO", _environment_set_is_false, _platform_all,
 		"Play sound." },
@@ -157,6 +168,25 @@ static const struct config_setting config_settings[] =
 		_platform_desktop,
 		"How far the view turns up and down for the mouse's movement; 0 for the\n"
 		"same as input.mouse_sensitivity." },
+	/* the Switch's host reads these itself (port/switch/host/host_input.c),
+	again when the settings menus write one */
+	{ "input.button_positions", _config_boolean, "false", "HALO_BUTTON_POSITIONS", _environment_value,
+		_platform_switch,
+		"Map A, B, X and Y by position, as an Xbox controller's (the bottom face\n"
+		"button jumps), instead of by their labels." },
+	{ "input.gyro_aim", _config_boolean, "false", "HALO_GYRO_AIM", _environment_value, _platform_switch,
+		"Aim by turning player 1's controller, as well as with the right stick." },
+	{ "input.gyro_sensitivity", _config_real, "1.0", "HALO_GYRO_SENSITIVITY", _environment_value,
+		_platform_switch,
+		"How far the view turns for the controller's turn: 1 as far, 2 twice." },
+	{ "input.gyro_invert_x", _config_boolean, "false", "HALO_GYRO_INVERT_X", _environment_value,
+		_platform_switch, "Gyro aiming turns the view the other way sideways." },
+	{ "input.gyro_invert_y", _config_boolean, "false", "HALO_GYRO_INVERT_Y", _environment_value,
+		_platform_switch, "Gyro aiming turns the view the other way up and down." },
+	{ "input.gyro_aim_assist", _config_boolean, "true", "HALO_GYRO_AIM_ASSIST", _environment_value,
+		_platform_switch,
+		"Magnetism while aiming with the gyro, as with the stick: the view slowed\n"
+		"and dragged along by a target." },
 
 	/* the keyboard and mouse's own controls (port/linux/src/xinput_sdl.c) */
 	{ "controls.move_forward", _config_string, "\"W\"", "HALO_KEY_MOVE_FORWARD", _environment_value, _platform_all,
@@ -365,36 +395,6 @@ static const struct config_setting config_settings[] =
 	{ "debug.sample_seconds", _config_real, "0.0", "HALO_SAMPLE", _environment_value, _platform_android,
 		"Log where every game thread is this often, in seconds (read by the\n"
 		"app, port/android/host/host_debug.c); 0 never." },
-	/* the Switch's host reads these itself (port/switch/host/host_input.c),
-	again when the settings menus write one */
-	{ "input.button_positions", _config_boolean, "false", "HALO_BUTTON_POSITIONS", _environment_value,
-		_platform_switch,
-		"Map A, B, X and Y by position, as an Xbox controller's (the bottom face\n"
-		"button jumps), instead of by their labels." },
-	{ "input.gyro_aim", _config_boolean, "false", "HALO_GYRO_AIM", _environment_value, _platform_switch,
-		"Aim by turning player 1's controller, as well as with the right stick." },
-	{ "input.gyro_sensitivity", _config_real, "1.0", "HALO_GYRO_SENSITIVITY", _environment_value,
-		_platform_switch,
-		"How far the view turns for the controller's turn: 1 as far, 2 twice." },
-	{ "input.gyro_invert_x", _config_boolean, "false", "HALO_GYRO_INVERT_X", _environment_value,
-		_platform_switch, "Gyro aiming turns the view the other way sideways." },
-	{ "input.gyro_invert_y", _config_boolean, "false", "HALO_GYRO_INVERT_Y", _environment_value,
-		_platform_switch, "Gyro aiming turns the view the other way up and down." },
-	{ "display.lock_30fps", _config_boolean, "false", "HALO_LOCK_30FPS", _environment_value, _platform_switch,
-		"30 frames a second with vsync, steadier than a rate that varies below\n"
-		"60, and lighter on the battery." },
-	{ "display.movies", _config_boolean, "true", "HALO_MOVIES", _environment_value, _platform_switch,
-		"Play the game's movies (the intro, the attract mode, the credits); off\n"
-		"skips them, as when their files are missing." },
-	{ "display.dynamic_resolution", _config_boolean, "false", "HALO_DYNAMIC_RESOLUTION", _environment_value,
-		_platform_switch,
-		"Lower the resolution a step while the GPU holds the frame rate back, and\n"
-		"raise it again when it can (between the Xbox's 480 lines and the render\n"
-		"scale set)." },
-	{ "input.gyro_aim_assist", _config_boolean, "true", "HALO_GYRO_AIM_ASSIST", _environment_value,
-		_platform_switch,
-		"Magnetism while aiming with the gyro, as with the stick: the view slowed\n"
-		"and dragged along by a target." },
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))

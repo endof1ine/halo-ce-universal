@@ -304,6 +304,21 @@ def test_menu_settings_exist():
     assert controls == set(re.findall(r'\{ "(controls\.[a-z_]+)", L"', functions))
 
 
+def test_config_sections_are_contiguous():
+    """config_default_text writes a [section] header at each change of section,
+    so each build's settings of a section must sit together: TOML refuses a
+    table defined twice, and the whole file would be ignored."""
+    config = (MENUS.parent.parent.parent / "port/linux/src/port_config.c").read_text()
+    platforms = {"desktop": 1, "android": 2, "switch": 4, "guest": 6, "all": 7}
+    settings = re.findall(r'^\t\{ "([a-z0-9_]+)\.[a-z0-9_]+", _config_\w+,.*?_platform_([a-z]+)', config,
+        re.M | re.S)
+    assert len(settings) > 100
+    for bit in (1, 2, 4):
+        sections = [section for section, platform in settings if platforms[platform] & bit]
+        headers = [section for index, section in enumerate(sections) if not index or sections[index - 1] != section]
+        assert len(headers) == len(set(headers)), f"platform {bit}: {headers}"
+
+
 def test_p2p_signatures_and_listings(tmp_path):
     """internet play's Ed25519 (RFC 8032), the X25519 key of a seed, and the
     server browser's listings from host to browser (tools/p2p_lobby_check.c),
