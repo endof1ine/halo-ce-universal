@@ -20,6 +20,9 @@ controller setup (players 2 to 4 each with a pair of Joy-Con or a Pro
 Controller: the game needs two sticks, so not one Joy-Con each); - and X
 the keyboard for an internet game's invite link (host_sdl.c).
 
+The touchscreen (handheld): a finger lifted is a tap where it was, which the
+menus take as a click (d3d8_gl.c's halo_ui_pointer_update).
+
 Gyro aiming (input.gyro_aim = true in config.toml; off unless set): player
 1's controller turned turns the view as much (input.gyro_sensitivity, 1 by
 default; input.gyro_invert_x and _y), through the platform layer's mouse
@@ -186,6 +189,7 @@ void host_input_initialize(void)
 	int player;
 
 	mutexInit(&input_lock);
+	hidInitializeTouchScreen();
 	padConfigureInput(PLAYERS, HidNpadStyleSet_NpadStandard);
 	padInitialize(&pads[0], HidNpadIdType_No1, HidNpadIdType_Handheld);
 	for (player = 1; player < PLAYERS; player++)
@@ -270,11 +274,55 @@ static void gyro_update(void)
 		-pitch * 6.2831853f * seconds * gyro.sensitivity_y / MOUSE_LOOK_RADIANS);
 }
 
+/* the touchscreen's taps since they were last read, under input_lock */
+static struct
+{
+	int down, x, y;
+	int taps, tap_x, tap_y;
+} touch;
+
+static void touch_update(void)
+{
+	HidTouchScreenState state;
+
+	if (!hidGetTouchScreenStates(&state, 1))
+		return;
+	if (state.count > 0)
+	{
+		touch.down = 1;
+		touch.x = (int)state.touches[0].x;
+		touch.y = (int)state.touches[0].y;
+	}
+	else if (touch.down)
+	{
+		touch.down = 0;
+		touch.taps++;
+		touch.tap_x = touch.x;
+		touch.tap_y = touch.y;
+	}
+}
+
+/* the taps since the last call, and where the last one was (the
+touchscreen's 1280x720) */
+int host_touch_taps(int *x, int *y)
+{
+	int taps;
+
+	mutexLock(&input_lock);
+	taps = touch.taps;
+	*x = touch.tap_x;
+	*y = touch.tap_y;
+	touch.taps = 0;
+	mutexUnlock(&input_lock);
+	return taps;
+}
+
 void host_input_update(void)
 {
 	int player;
 
 	mutexLock(&input_lock);
+	touch_update();
 	for (player = 0; player < PLAYERS; player++)
 	{
 		int connected;

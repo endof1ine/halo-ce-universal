@@ -134,4 +134,8 @@ buffer, by its name */
 int host_gl_buffer_persist(unsigned int target, unsigned int size);
 void host_gl_buffer_write_to(unsigned int buffer, unsigned int offset, unsigned int size, const void *data);
 
+/* the Switch's: the touchscreen's taps since the last call, and where the
+last one was (its 1280x720) */
+int host_touch_taps(int *x, int *y);
+
 #endif

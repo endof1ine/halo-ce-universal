@@ -91,6 +91,12 @@ The buttons go by their labels, as the game's prompts show them:
 The first controller (or the attached Joy-Con) is player 1. The other
 controllers are players 2 to 4 (split screen).
 
+In handheld mode, tap the menus on the screen to choose an item. Tap the
+left or right half of a setting's value to change it.
+
+When you press HOME or the Switch goes to sleep during a game, the game
+opens its pause menu.
+
 On player 1's controller, hold these buttons together for one second:
 
 | Buttons | Function |

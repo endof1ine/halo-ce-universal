@@ -1414,7 +1414,7 @@ HRESULT WINAPI Direct3D_CreateDevice(UINT adapter, D3DDEVTYPE device_type, void 
 
 /* ---------- the menus' pointer */
 
-#ifdef HALO_GUEST
+#if defined(HALO_GUEST) && !defined(HALO_SWITCH)
 int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 {
 	(void)pointer;
@@ -1422,9 +1422,15 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 	return 0;
 }
 #else
-/* a point in the window, as SDL reports it, in the menus' coordinates: the
-inverse of the letterboxed display blit at presentation, the screen's
-width and the menus' centering (halo_screen_ui_offset) */
+#ifdef HALO_SWITCH
+/* the host's (guest_host.h) */
+int host_touch_taps(int *x, int *y);
+#endif
+
+/* a point in the window, as SDL reports it (on the Switch, on its
+touchscreen), in the menus' coordinates: the inverse of the letterboxed
+display blit at presentation, the screen's width and the menus' centering
+(halo_screen_ui_offset) */
 static void ui_point_from_window(float window_x, float window_y, short *x, short *y)
 {
 	struct render_target_entry *back_buffer = render_target_get(&device.back_buffer);
@@ -1434,7 +1440,12 @@ static void ui_point_from_window(float window_x, float window_y, short *x, short
 	*x = *y = -1;
 	if (!back_buffer)
 		return;
+#ifdef HALO_SWITCH
+	window_width = 1280;
+	window_height = 720;
+#else
 	platform_video_window_size(&window_width, &window_height);
+#endif
 	platform_video_drawable_size(&pixel_width, &pixel_height);
 	if (window_width <= 0 || window_height <= 0)
 		return;
@@ -1453,6 +1464,24 @@ static void ui_point_from_window(float window_x, float window_y, short *x, short
 	*y = (short)floorf(screen_y);
 }
 
+#ifdef HALO_SWITCH
+/* a tap on the touchscreen: a click where it was */
+int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
+{
+	int x = 0, y = 0, taps;
+
+	platform_menus_set_active(menus_active != 0);
+	taps = host_touch_taps(&x, &y);
+	if (!menus_active || !device.gl_ready || !taps)
+		return 0;
+	memset(pointer, 0, sizeof(*pointer));
+	ui_point_from_window((float)x, (float)y, &pointer->click_x, &pointer->click_y);
+	pointer->x = pointer->click_x;
+	pointer->y = pointer->click_y;
+	pointer->left_clicks = 1;
+	return 1;
+}
+#else
 int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 {
 	struct platform_ui_pointer state;
@@ -1470,6 +1499,7 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 	pointer->wheel_steps = (signed char)(state.wheel_steps < -8 ? -8 : state.wheel_steps > 8 ? 8 : state.wheel_steps);
 	return 1;
 }
+#endif
 #endif
 
 /* takes up the display's shape and resolution, or the window's, if they

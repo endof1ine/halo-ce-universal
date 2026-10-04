@@ -116,6 +116,14 @@ int host_gl_buffer_persist(uint32_t target, uint32_t size)
 	return 0;
 }
 
+/* (the Switch's host reads its touchscreen; this one's menus take touches
+as the app passes them) */
+int host_touch_taps(int *x, int *y)
+{
+	*x = *y = 0;
+	return 0;
+}
+
 void host_gl_buffer_write_to(uint32_t buffer, uint32_t offset, uint32_t size, const void *data)
 {
 	(void)buffer;
