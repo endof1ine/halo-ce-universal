@@ -110,6 +110,7 @@ only for the Switch:
 | --- | --- |
 | `display.render_scale` | The screen's pixels for each of the 480 lines of the game, in handheld mode. `1` (the default) is the Xbox's. `1.5` is the 720 lines of the Switch's screen: sharper, and more work for the GPU. |
 | `display.render_scale_docked` | The same, when the Switch is docked. The game then shows 1080 lines. `1.5` (the default) draws 720 lines, `2.25` all 1080. |
+| `display.lock_30fps` | `true`: 30 frames a second, steadier than a rate that varies below 60, and lighter on the battery. |
 | `display.async_shaders` | `true` (the default): other cores compile the shaders. An effect that appears for the first time is a frame or two late. `false`: the game stops while each shader compiles. |
 | `input.button_positions` | `true`: A, B, X and Y go by their positions, as on an Xbox controller (the bottom button jumps). |
 | `input.gyro_aim` | `true`: turn player 1's controller to aim. The right stick also aims. |

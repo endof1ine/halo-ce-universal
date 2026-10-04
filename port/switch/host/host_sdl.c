@@ -338,8 +338,16 @@ int host_sdl_gl_make_current(uint32_t window, uint32_t gl_context)
 	return 1;
 }
 
+/* display.lock_30fps: a frame every second vertical blank, as steady as 30
+a second can be (the game's ticks are 30 a second) and lighter on the
+battery than 60 */
 int host_sdl_gl_set_swap_interval(int interval)
 {
+	if (interval == 1 && host_config_boolean("display.lock_30fps"))
+	{
+		interval = 2;
+		host_logf(HOST_LOG_INFO, "30 frames a second (display.lock_30fps)");
+	}
 	swap_interval = interval;
 	return eglSwapInterval(display, interval) ? 1 : 0;
 }
