@@ -2883,6 +2883,22 @@ static GLenum address_mode(DWORD mode)
 /* hires: a high-res HUD texture (hud_hires.h), drawn smaller than it is, so
 filtered and from its mip levels whatever the game asks: the HUD's meters are
 point sampled for one player, to keep the Xbox bitmaps' texels sharp */
+#ifdef HALO_SWITCH
+/* a sampler object for each set of sampler state seen (a few dozen), made
+once and then bound: a stage's one sampler set again for each draw whose
+state differs from the last was a run of the driver's validations each
+time */
+#define SAMPLER_CACHE 256
+
+static struct
+{
+	DWORD inputs[11];
+	GLuint sampler;
+} sampler_cache[SAMPLER_CACHE];
+static unsigned int sampler_cache_count;
+#endif
+
+/* the stage's sampler, bound, for its texture stage state */
 static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
 {
 	/* the texture stage state each sampler was last configured from */
@@ -2910,10 +2926,38 @@ static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
 	inputs[8] = state[D3DTSS_MAXANISOTROPY];
 	inputs[9] = state[D3DTSS_BORDERCOLOR];
 	inputs[10] = hires;
+#ifdef HALO_SWITCH
+	{
+		unsigned int index;
+
+		for (index = 0; index < sampler_cache_count; index++)
+		{
+			if (!memcmp(sampler_cache[index].inputs, inputs, sizeof(inputs)))
+			{
+				state_sampler(stage, sampler_cache[index].sampler);
+				return;
+			}
+		}
+		/* (a new one, configured below; a full cache reuses the stage's own) */
+		if (sampler_cache_count < SAMPLER_CACHE)
+		{
+			glGenSamplers(1, &sampler);
+			memcpy(sampler_cache[sampler_cache_count].inputs, inputs, sizeof(inputs));
+			sampler_cache[sampler_cache_count++].sampler = sampler;
+			configured_valid[stage] = FALSE;
+		}
+		state_sampler(stage, sampler);
+	}
+	if (sampler != device.samplers[stage])
+		goto configure;
+#endif
 	if (configured_valid[stage] && !memcmp(configured[stage], inputs, sizeof(inputs)))
 		return;
 	memcpy(configured[stage], inputs, sizeof(inputs));
 	configured_valid[stage] = TRUE;
+#ifdef HALO_SWITCH
+configure:
+#endif
 
 	if (min_filter == D3DTEXF_POINT)
 		minification = mip_filter == D3DTEXF_NONE ? GL_NEAREST :
@@ -3105,7 +3149,9 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 				}
 			}
 			state_texture(stage, gl_target, gl_texture);
+#ifndef HALO_SWITCH
 			state_sampler(stage, device.samplers[stage]);
+#endif
 			configure_sampler(stage, description.levels > 1, description.hires);
 			if (stage == 0)
 				key->coverage_alpha = description.hires_coverage != FALSE;
@@ -3763,6 +3809,10 @@ static struct
 
 /* writes [address, address + size) of the window at offset in a segment's
 buffer, made when first needed */
+#ifdef HALO_SWITCH
+static unsigned long stream_upload(const void *data, unsigned long size);
+#endif
+
 static void mirror_buffer_write(unsigned long segment, unsigned long offset, unsigned long address,
 	unsigned long size, BOOL unused)
 {
@@ -3784,6 +3834,20 @@ static void mirror_buffer_write(unsigned long segment, unsigned long offset, uns
 	}
 #else
 	(void)unused;
+#endif
+#ifdef HALO_SWITCH
+	/* pages queued draws may read: into the stream ring (mapped, written at
+	once), and the GPU copies them over after those draws; glBufferSubData
+	would have the driver wait for them first */
+	if (size <= STREAM_BUFFER_SIZE / 4)
+	{
+		unsigned long staged = stream_upload((const void *)address, size);
+
+		glBindBuffer(GL_COPY_READ_BUFFER, device.stream_buffer);
+		glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, (GLintptr)staged, (GLintptr)offset,
+			(GLsizeiptr)size);
+		return;
+	}
 #endif
 	glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)offset, (GLsizeiptr)size, (const void *)address);
 }
