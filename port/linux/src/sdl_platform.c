@@ -928,6 +928,18 @@ void halo_map_loading(int loading)
 #endif
 }
 
+/* the system's HOME menu or sleep took the game away (the Switch's): the
+game opens its pause menu once (ui_widget.c's ui_check_for_pause_game) */
+static volatile int pause_requested;
+
+int halo_pause_requested(void)
+{
+	int requested = pause_requested;
+
+	pause_requested = 0;
+	return requested;
+}
+
 void platform_scoreboard_scroll(int open, long *notches, long *pages)
 {
 	Uint64 now = SDL_GetTicks();
@@ -1132,6 +1144,9 @@ void platform_pump_events(void)
 			memset(input_state.mouse_buttons, 0, sizeof(input_state.mouse_buttons));
 			memset(mouse_buttons_pressed, 0, sizeof(mouse_buttons_pressed));
 			input_state.focused = FALSE;
+#ifdef HALO_SWITCH
+			pause_requested = 1;
+#endif
 			break;
 		case SDL_EVENT_WINDOW_FOCUS_GAINED:
 			input_state.focused = TRUE;

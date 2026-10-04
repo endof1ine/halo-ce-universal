@@ -7097,9 +7097,14 @@ static void widget_instance_process_one_event_recursive(
 static boolean ui_check_for_pause_game(
 	void)
 {
+	/* port: the platform layer's (port/linux/src/sdl_platform.c) */
+	extern int halo_pause_requested(void);
 	boolean pause_pressed = FALSE;
 	boolean network_game = network_game_is_active();
 	short controller_index = NONE;
+	/* port: the system's HOME menu or sleep (the Switch's) opens the pause
+	menu as player 1's Start does, but never closes it */
+	boolean system_pause = halo_pause_requested();
 
 	if (game_in_progress() &&
 		!cinematic_in_progress() &&
@@ -7109,7 +7114,13 @@ static boolean ui_check_for_pause_game(
 	{
 		long gamepad_index;
 
+		if (system_pause && local_player_exists(0) && !widget_globals.active_widgets[0])
+		{
+			pause_pressed = TRUE;
+			controller_index = 0;
+		}
 		for (gamepad_index = 0;
+			!pause_pressed &&
 			gamepad_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS;
 			gamepad_index++)
 		{
