@@ -385,6 +385,9 @@ int main(int argc, char *argv[])
 	log_file = fopen(HOST_DATA_ROOT "/host.log", "w");
 	if (R_SUCCEEDED(socketInitialize(&socket_config)) && __nxlink_host.s_addr)
 		log_socket = nxlinkConnectToHost(false, false);
+	/* (open for good: libnx's gethostid opens and closes it at each call,
+	connecting to the service manager again each time) */
+	nifmInitialize(NifmServiceType_User);
 	send_last_crash_report();
 	host_logf(HOST_LOG_INFO, "Halo for Switch starting");
 	host_syscall_initialize();

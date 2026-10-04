@@ -534,7 +534,32 @@ static posix_ulong interface_address(unsigned int flags)
 }
 #endif
 
+#ifdef __SWITCH__
+static posix_ulong local_ipv4_address(void);
+
+/* (the game asks every frame, for its link status: each answer is requests
+to the system's network service, so one is kept for a second) */
 posix_ulong posix_local_ipv4_address(void)
+{
+	static posix_ulong cached;
+	static unsigned long long cached_at;
+	struct timespec now;
+	unsigned long long now_ms;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	now_ms = (unsigned long long)now.tv_sec * 1000ULL + (unsigned long long)now.tv_nsec / 1000000ULL;
+	if (!cached_at || now_ms - cached_at >= 1000)
+	{
+		cached = local_ipv4_address();
+		cached_at = now_ms;
+	}
+	return cached;
+}
+
+static posix_ulong local_ipv4_address(void)
+#else
+posix_ulong posix_local_ipv4_address(void)
+#endif
 {
 	struct sockaddr_in route;
 	socklen_t length = sizeof(route);
