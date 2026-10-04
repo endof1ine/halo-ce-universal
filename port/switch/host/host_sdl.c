@@ -17,9 +17,11 @@ pointer, which are all the guest reads.
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <SDL3/SDL_events.h>
+#include <SDL3/SDL_scancode.h>
 #include <SDL3/SDL_video.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <switch.h>
 
 /* the screen's size; docked, the system scales it to the television */
@@ -318,6 +320,57 @@ int host_sdl_gl_swap_window(uint32_t window)
 	(void)window;
 	frame_statistics();
 	return eglSwapBuffers(display, surface) ? 1 : 0;
+}
+
+/* ---------- key names (the settings' key bindings): SDL's, for the keys a
+Switch has no keyboard for anyway, but those of letters, digits and a few */
+
+static const struct
+{
+	int scancode;
+	const char *name;
+} key_names[] = {
+	{ SDL_SCANCODE_RETURN, "Return" }, { SDL_SCANCODE_ESCAPE, "Escape" },
+	{ SDL_SCANCODE_BACKSPACE, "Backspace" }, { SDL_SCANCODE_TAB, "Tab" }, { SDL_SCANCODE_SPACE, "Space" },
+	{ SDL_SCANCODE_LSHIFT, "Left Shift" }, { SDL_SCANCODE_LCTRL, "Left Ctrl" },
+	{ SDL_SCANCODE_LALT, "Left Alt" }, { SDL_SCANCODE_UP, "Up" }, { SDL_SCANCODE_DOWN, "Down" },
+	{ SDL_SCANCODE_LEFT, "Left" }, { SDL_SCANCODE_RIGHT, "Right" },
+};
+
+void host_sdl_scancode_name(int32_t scancode, char *buffer, uint32_t size)
+{
+	unsigned index;
+
+	if (!size)
+		return;
+	buffer[0] = 0;
+	if (scancode >= SDL_SCANCODE_A && scancode <= SDL_SCANCODE_Z)
+		snprintf(buffer, size, "%c", 'A' + (scancode - SDL_SCANCODE_A));
+	else if (scancode >= SDL_SCANCODE_1 && scancode <= SDL_SCANCODE_0)
+		snprintf(buffer, size, "%c", scancode == SDL_SCANCODE_0 ? '0' : '1' + (scancode - SDL_SCANCODE_1));
+	for (index = 0; index < sizeof(key_names) / sizeof(*key_names); index++)
+	{
+		if (key_names[index].scancode == scancode)
+			snprintf(buffer, size, "%s", key_names[index].name);
+	}
+}
+
+int32_t host_sdl_scancode_from_name(const char *name)
+{
+	unsigned index;
+
+	if (!name || !*name)
+		return SDL_SCANCODE_UNKNOWN;
+	if (!name[1] && ((name[0] | 0x20) >= 'a' && (name[0] | 0x20) <= 'z'))
+		return SDL_SCANCODE_A + ((name[0] | 0x20) - 'a');
+	if (!name[1] && name[0] >= '0' && name[0] <= '9')
+		return name[0] == '0' ? SDL_SCANCODE_0 : SDL_SCANCODE_1 + (name[0] - '1');
+	for (index = 0; index < sizeof(key_names) / sizeof(*key_names); index++)
+	{
+		if (!strcasecmp(key_names[index].name, name))
+			return key_names[index].scancode;
+	}
+	return SDL_SCANCODE_UNKNOWN;
 }
 
 /* ---------- the clipboard (internet play's invite links): the program's own */
