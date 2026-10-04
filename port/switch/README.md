@@ -217,5 +217,5 @@ and the options of the build.
 ## Limits
 
 - The game cannot extract the game data from a disc image on the Switch.
-- When the game exits, the Switch goes back to the HOME menu, not to the
-  Homebrew Menu.
+- The game has no Quit, as on the Xbox: close it from the HOME menu. The
+  Switch then goes back to the HOME menu, not to the Homebrew Menu.

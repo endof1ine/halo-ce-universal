@@ -12,8 +12,8 @@
 	</widget>
 	<widget name="main_menu/main_menu" width="640" height="480" flags="pass_unhandled_to_focused_child">
 		<on event="created" run="main menu intialize" label="ring_loop"/>
-		<on event="back" open="main_menu/quit_select/quit_screen"/>
-		<on event="b" open="main_menu/quit_select/quit_screen"/>
+		<on event="back" open="main_menu/quit_select/quit_screen" platform="desktop android"/>
+		<on event="b" open="main_menu/quit_select/quit_screen" platform="desktop android"/>
 		<child widget="main_menu/halo_logo" y="28"/>
 		<child widget="main_menu/main_menu_select_list"/>
 		<child widget="main_menu/build_number" x="450" y="400"/>
@@ -56,7 +56,7 @@
 		<child widget="main_menu/main_menu_item_multiplayer" x="192" y="283"/>
 		<child widget="main_menu/main_menu_item_profile" x="192" y="319"/>
 		<child widget="main_menu/main_menu_item_settings" x="192" y="355"/>
-		<child widget="main_menu/main_menu_item_quit_game" x="192" y="391"/>
+		<child widget="main_menu/main_menu_item_quit_game" x="192" y="391" platform="desktop android"/>
 	</widget>
 	<widget name="main_menu/new_campaign_creating_profile" width="640" height="480" flags="pass_unhandled_to_focused_child no_history" auto_close="1">
 		<on event="deleted" run="new campaign decision" open="main_menu/new_campaign_saving_profile"/>

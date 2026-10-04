@@ -520,6 +520,16 @@ _SWITCH_UP = [("gamepads_profile_item", 0, -33), ("mouse_settings_profile_item",
 # their handlers replaced, children added, children placed by platform
 # ("places": a child's (x, y, platform) for each)
 WIDGET_PATCHES = {
+    # (the Switch's games end from HOME, as the Xbox's did: no Quit, from the
+    # list or from B at the main menu)
+    "main_menu/main_menu": {"handlers": [
+        '<on event="created" run="main menu intialize" label="ring_loop"/>',
+        f'<on event="back" open="main_menu/quit_select/quit_screen" platform="{NOT_SWITCH}"/>',
+        f'<on event="b" open="main_menu/quit_select/quit_screen" platform="{NOT_SWITCH}"/>',
+    ]},
+    "main_menu/main_menu_select_list": {"places": {
+        "main_menu/main_menu_item_quit_game": [(192, 391, NOT_SWITCH)],
+    }},
     f"{PE}/profile_edit_select_list": {"places": {
         f"{PE}/controller_setup_profile_item": [(0, 0, NOT_SWITCH)],
         **{f"{PE}/{item}": [(0, y, NOT_SWITCH), (0, switch_y, "switch")] for item, y, switch_y in _SWITCH_UP},
