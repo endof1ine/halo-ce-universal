@@ -30,3 +30,6 @@ original/
 
 # CI build outputs (tools/ci_build.py)
 dist/
+
+# The Switch probe's build (port/switch/spike)
+port/switch/spike/probe.*
