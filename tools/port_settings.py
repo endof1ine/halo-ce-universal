@@ -206,6 +206,17 @@ STRING_VARIANTS = {
 # the Switch
 FRAME_PLATFORMS = {f"{PE}/profile_options": {1: NOT_SWITCH}}
 
+# the PC version's pictures with no redraw and none in the Xbox's map, drawn
+# blank (a transparent 512x256 picture, which tools/ce_menus.py writes)
+# rather than as placeholders unlike the game's own (NON_HANDDRAWN.md)
+BLANK_FRAMES = {
+    *(f"ce/shell/main_menu/multiplayer_type_select/mp_options__{index}.png" for index in (0, 1)),
+    *(f"ce/shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__{index}.png"
+      for index in (0, 3, 4, 6, 7)),
+    *(f"ce/shell/{PE}/profile_options__{index}.png" for index in (1, 3, 4, 5, 6, 8)),
+}
+BLANK_PICTURE = "ce/port/blank_picture.png"
+
 
 def string_entries(name: str, strings: list) -> list:
     """a list's strings as (text, platform) pairs, with STRING_VARIANTS"""

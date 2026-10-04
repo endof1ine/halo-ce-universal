@@ -359,6 +359,13 @@ class Art:
                 lines.append(f"\t\t<frame{attributes([('map', tag), ('index', XBOX_FRAMES[name]), ('platform', platform)])}/>")
                 continue
             png = f"ce/{relative}__{index}.png"
+            if png in port_settings.BLANK_FRAMES:
+                if not (MENUS / port_settings.BLANK_PICTURE).is_file():
+                    Image.new("RGBA", (width, height)).save(MENUS / port_settings.BLANK_PICTURE, optimize=True)
+                if port_settings.BLANK_PICTURE not in self.pngs:
+                    self.pngs.append(port_settings.BLANK_PICTURE)
+                lines.append(f"\t\t<frame{attributes([('png', port_settings.BLANK_PICTURE), ('width', width), ('height', height), ('platform', platform)])}/>")
+                continue
             self.draw(relative, index, len(data), width, height, MENUS / png, self.shown.get(tag, []))
             self.pngs.append(png)
             lines.append(f"\t\t<frame{attributes([('png', png), ('width', width), ('height', height), ('platform', platform)])}/>")
@@ -656,13 +663,15 @@ def main() -> None:
         "## Placeholders, to be redrawn",
         "",
         "The Xbox's map has none of these (or other pictures under the name), so each frame is a placeholder",
-        "until it is redrawn.",
+        "until it is redrawn, or drawn blank (`blank` below: port_settings.BLANK_FRAMES, as the menus show them).",
         "",
         "| File | Size | The PC version's picture |",
         "| --- | --- | --- |",
     ]
     report += [f"| `{png}` | {w}x{h} | `{source}` |" for png, w, h, source in sorted(art.pictures)]
-    report += ["", f"{len(art.pictures)} of {len(art.pngs)} frames are placeholders.",
+    report += [f"| `{png}` | blank | `{png[3:]}` |" for png in sorted(port_settings.BLANK_FRAMES)]
+    report += ["", f"{len(art.pictures)} of {len(art.pngs)} frames are placeholders, "
+               f"{len(port_settings.BLANK_FRAMES)} drawn blank.",
                "", "The PC version's `ui\\gamespy` and `ui\\ticker` fonts are drawn with `ui\\small_ui`, which",
                "the Xbox's map has.", ""]
     (MENUS / "NON_HANDDRAWN.md").write_text("\n".join(report))
