@@ -526,6 +526,21 @@ void xgpu_gl_state_invalidate(void)
 	memset(&gl_state, 0xff, sizeof(gl_state));
 }
 
+/* what D3DDevice_Clear changes (the masks and the scissor), unknown again;
+the other ports forget all the state, which the Switch's CPU feels */
+static void clear_state_invalidate(void)
+{
+#ifdef HALO_SWITCH
+	gl_state.color_mask = 0xff;
+	gl_state.depth_mask = 0xff;
+	gl_state.stencil_write_mask = 0xffffffffu;
+	gl_state.scissor_test = 0xff;
+	memset(gl_state.scissor, 0xff, sizeof(gl_state.scissor));
+#else
+	xgpu_gl_state_invalidate();
+#endif
+}
+
 static void state_enable(unsigned char *shadow, GLenum capability, BOOL enabled)
 {
 	unsigned char value = enabled ? 1 : 0;
@@ -4194,7 +4209,7 @@ void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags,
 			target_pixel((float)(device.viewport.Y + device.viewport.Height), 1) - y0);
 		glClear(mask);
 		glDisable(GL_SCISSOR_TEST);
-		xgpu_gl_state_invalidate();
+		clear_state_invalidate();
 		return;
 	}
 	glEnable(GL_SCISSOR_TEST);
@@ -4217,7 +4232,7 @@ void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags,
 		glClear(mask);
 	}
 	glDisable(GL_SCISSOR_TEST);
-	xgpu_gl_state_invalidate();
+	clear_state_invalidate();
 }
 
 /* ---------- presentation */
