@@ -306,6 +306,7 @@ static void mix_voice(struct sdl_stream *stream, float *output, unsigned long fr
 	double step;
 	float target_left, target_right, left, right, ramp_left, ramp_right;
 	unsigned long frame;
+	struct voice_packet *packet = NULL;
 
 	if (stream->paused || !stream->packet_count || !stream->sample_rate)
 		return;
@@ -324,24 +325,28 @@ static void mix_voice(struct sdl_stream *stream, float *output, unsigned long fr
 
 	for (frame = 0; frame < frames; frame++)
 	{
-		struct voice_packet *packet;
 		unsigned long index;
 		float fraction, sample_left, sample_right;
 
-		/* skip to the first packet that still has frames to play */
+		/* skip to the first packet that still has frames to play (looked
+		for again only once the one playing has ended) */
 		for (;;)
 		{
 			unsigned long position;
 
-			packet = NULL;
-			for (position = 0; position < stream->packet_count; position++)
+			if (!packet || packet->finished)
 			{
-				struct voice_packet *candidate = &stream->packets[(stream->packet_head + position) % MAXIMUM_STREAM_PACKETS];
-
-				if (!candidate->finished)
+				packet = NULL;
+				for (position = 0; position < stream->packet_count; position++)
 				{
-					packet = candidate;
-					break;
+					struct voice_packet *candidate =
+						&stream->packets[(stream->packet_head + position) % MAXIMUM_STREAM_PACKETS];
+
+					if (!candidate->finished)
+					{
+						packet = candidate;
+						break;
+					}
 				}
 			}
 			if (!packet)
