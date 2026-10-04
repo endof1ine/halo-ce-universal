@@ -27,9 +27,7 @@ builds only with debug.profile = true.
 #define SAMPLE_NANOSECONDS 2000000ll
 #define REPORT_NANOSECONDS 10000000000ull
 #define BUCKETS 8192
-#define REPORTED 64
-#define GUEST_CODE_START 0x88000000ull
-#define GUEST_CODE_END 0x886f0000ull
+#define REPORTED 128
 
 struct bucket
 {
@@ -72,7 +70,8 @@ static int guest_return_address(uint64_t value)
 {
 	uint32_t instruction;
 
-	if (value < GUEST_CODE_START + 4 || value >= GUEST_CODE_END || (value & 3))
+	/* (the guest's code: host_loader.c's image) */
+	if (value < (uint64_t)host_image.base + 4 || value >= host_image.code_end || (value & 3))
 		return 0;
 	instruction = *(const uint32_t *)(uintptr_t)(value - 4);
 	return (instruction & 0xfc000000u) == 0x94000000u || (instruction & 0xfffffc1fu) == 0xd63f0000u;

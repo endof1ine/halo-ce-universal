@@ -246,7 +246,12 @@ void host_gl_wait_frame(uint32_t slot)
 	if (slot >= FRAME_FENCE_SLOTS || !frame_fences[slot])
 		return;
 	/* at most a second: a lost context must not hang the game */
-	gl.ClientWaitSync(frame_fences[slot], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ull);
+	{
+		uint64_t start = now_ns();
+
+		gl.ClientWaitSync(frame_fences[slot], GL_SYNC_FLUSH_COMMANDS_BIT, 1000000000ull);
+		host_gl_timing.gpu_wait_ns += now_ns() - start;
+	}
 	gl.DeleteSync(frame_fences[slot]);
 	frame_fences[slot] = NULL;
 }

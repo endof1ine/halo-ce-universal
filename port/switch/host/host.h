@@ -83,6 +83,8 @@ struct host_guest_image
 {
 	const struct halo_guest_header *header;
 	uint32_t base, end;
+	/* where its code ends (from base) */
+	uint32_t code_end;
 };
 
 extern struct host_guest_image host_image;
@@ -97,6 +99,9 @@ struct gl_timing
 {
 	uint64_t shader_ns, texture_ns;
 	uint32_t shaders, programs, textures;
+	/* waiting: for the display (eglSwapBuffers) and for the GPU to finish
+	a frame whose stream buffers come round again (host_gl_wait_frame) */
+	uint64_t swap_ns, gpu_wait_ns;
 };
 extern struct gl_timing host_gl_timing;
 

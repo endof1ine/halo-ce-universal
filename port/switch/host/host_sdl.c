@@ -398,10 +398,12 @@ static void frame_statistics(void)
 	if (now - period_start >= 10000000000ull)
 	{
 		host_logf(HOST_LOG_INFO, "frames: %.1f per second, slowest %.1f ms, %u over 33 ms; "
-			"%u shaders and %u programs in %.1f ms, %u texture uploads in %.1f ms",
+			"%u shaders and %u programs in %.1f ms, %u texture uploads in %.1f ms; "
+			"a frame waits %.1f ms for the display, %.1f ms for the GPU",
 			frames * 1e9 / (double)(now - period_start), slowest / 1e6, slow_frames,
 			host_gl_timing.shaders, host_gl_timing.programs, host_gl_timing.shader_ns / 1e6,
-			host_gl_timing.textures, host_gl_timing.texture_ns / 1e6);
+			host_gl_timing.textures, host_gl_timing.texture_ns / 1e6,
+			host_gl_timing.swap_ns / 1e6 / frames, host_gl_timing.gpu_wait_ns / 1e6 / frames);
 		memset(&host_gl_timing, 0, sizeof(host_gl_timing));
 		period_start = now;
 		frames = slow_frames = 0;
@@ -411,9 +413,15 @@ static void frame_statistics(void)
 
 int host_sdl_gl_swap_window(uint32_t window)
 {
+	uint64_t start;
+	int result;
+
 	(void)window;
 	frame_statistics();
-	return eglSwapBuffers(display, surface) ? 1 : 0;
+	start = armTicksToNs(armGetSystemTick());
+	result = eglSwapBuffers(display, surface) ? 1 : 0;
+	host_gl_timing.swap_ns += armTicksToNs(armGetSystemTick()) - start;
+	return result;
 }
 
 /* ---------- key names (the settings' key bindings): SDL's, for the keys a

@@ -118,6 +118,7 @@ int host_load_image(const void *file, size_t size)
 	host_image.header = header;
 	host_image.base = (uint32_t)low;
 	host_image.end = (uint32_t)high;
+	host_image.code_end = (uint32_t)code_end;
 
 	/* the import table is in the data segment */
 	table = (uint64_t *)(uintptr_t)header->import_table;
