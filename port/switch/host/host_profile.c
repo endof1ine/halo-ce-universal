@@ -41,9 +41,11 @@ static struct bucket callers[BUCKETS];
 static Handle sampled;
 static Thread profiler;
 
+/* (by instruction: a coarser bucket straddles functions, a system call's
+stub and the next one, and is named after the first) */
 static void count_in(struct bucket *table, uint64_t address)
 {
-	uint64_t key = address >> 4;
+	uint64_t key = address >> 2;
 	uint32_t index = (uint32_t)((key * 0x9E3779B97F4A7C15ull) >> 51) % BUCKETS;
 	uint32_t probe;
 
@@ -124,7 +126,7 @@ static void report_table(const struct bucket *table, const char *tag)
 	for (index = 0; index < REPORTED && sorted[index].count; index++)
 	{
 		length += snprintf(line + length, sizeof(line) - (size_t)length, " %lx:%u",
-			(unsigned long)(sorted[index].address << 4), sorted[index].count);
+			(unsigned long)(sorted[index].address << 2), sorted[index].count);
 		if (length > 900 || index % 8 == 7)
 		{
 			host_logf(HOST_LOG_INFO, "%s:%s", tag, line);
