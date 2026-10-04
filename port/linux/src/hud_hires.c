@@ -7,7 +7,8 @@ uploaded, and each one's GL texture.
 Which bitmap is at an address the game knows (from the loaded map's tags:
 port/linux/game/hud_hires_tags.c). Each texture is decoded from its PNG when
 first drawn and kept: up to 69 of the HUD's, about 225 MB with their mip
-levels, though a game draws only some (the scopes' only when zoomed), and
+levels (on the Switch, halved: a quarter of it), though a game draws only
+some (the scopes' only when zoomed), and
 the titles of the menus shown, about 3 MB each (11 MB for the carnage
 report's, a whole panel).
 They are drawn with linear filtering and their mip levels (d3d8_gl.c,
@@ -39,6 +40,8 @@ static struct
 	unsigned long levels;
 	int failed;
 	int other_pixels_logged;
+	/* its size over the bitmap's it stands for */
+	unsigned long ratio;
 } textures[MAXIMUM_TEXTURES];
 
 long hud_hires_asset_count(void)
@@ -97,6 +100,7 @@ long hud_hires_override_find(unsigned long address, unsigned long width, unsigne
 		}
 		return -1;
 	}
+	textures[asset].ratio = width ? hud_hires_embedded[asset].width / width : 0;
 	return asset;
 }
 
@@ -208,7 +212,30 @@ failed:
 	return NULL;
 }
 
-unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned long *levels)
+/* the texels at half the size each way, each the mean of four, in place */
+static void texels_halve(unsigned char *pixels, unsigned long *width, unsigned long *height)
+{
+	unsigned long half_width = *width / 2, half_height = *height / 2, row, column, channel;
+
+	for (row = 0; row < half_height; row++)
+	{
+		for (column = 0; column < half_width; column++)
+		{
+			const unsigned char *above = pixels + ((row * 2) * *width + column * 2) * 4;
+			const unsigned char *below = above + *width * 4;
+			unsigned char *out = pixels + (row * half_width + column) * 4;
+
+			for (channel = 0; channel < 4; channel++)
+				out[channel] = (unsigned char)((above[channel] + above[channel + 4] + below[channel] +
+					below[channel + 4] + 2) / 4);
+		}
+	}
+	*width = half_width;
+	*height = half_height;
+}
+
+/* the texture of a PNG, halved this many times (even sizes only) */
+static unsigned int png_texture(const void *png, unsigned long size, unsigned long *levels, int halvings)
 {
 	unsigned long width = 0, height = 0, largest;
 	unsigned char *pixels = png_decode(png, size, &width, &height);
@@ -216,20 +243,27 @@ unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned
 
 	if (!pixels)
 		return 0;
+	for (; halvings > 0 && width % 2 == 0 && height % 2 == 0 && width > 1 && height > 1; halvings--)
+		texels_halve(pixels, &width, &height);
 	*levels = 1;
 	for (largest = width > height ? width : height; largest > 1; largest >>= 1)
 		(*levels)++;
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
-	xgpu_gl_state_invalidate();
+	xgpu_gl_state_forget_textures();
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (GLint)*levels - 1);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)width, (GLsizei)height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 	glGenerateMipmap(GL_TEXTURE_2D);
-	xgpu_gl_state_invalidate();
+	xgpu_gl_state_forget_textures();
 	free(pixels);
 	return texture;
+}
+
+unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned long *levels)
+{
+	return png_texture(png, size, levels, 0);
 }
 
 unsigned int hud_hires_override_texture(long asset, unsigned long *levels)
@@ -244,7 +278,13 @@ unsigned int hud_hires_override_texture(long asset, unsigned long *levels)
 		return textures[asset].texture;
 	}
 	embedded = &hud_hires_embedded[asset];
-	textures[asset].texture = hud_hires_png_texture(embedded->png, embedded->png_size, &textures[asset].levels);
+	/* (the Switch draws at most 1080 lines, 2.25 times the Xbox's: a texture
+	4 times its bitmap's size is halved, a quarter of the memory) */
+	textures[asset].texture = png_texture(embedded->png, embedded->png_size, &textures[asset].levels,
+#ifdef HALO_SWITCH
+		textures[asset].ratio >= 4 ? 1 :
+#endif
+		0);
 	if (!textures[asset].texture)
 	{
 		platform_log("high-res hud: could not decode the texture for %s bitmap %d", embedded->tag, embedded->bitmap);
