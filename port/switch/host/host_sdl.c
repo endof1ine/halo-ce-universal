@@ -301,8 +301,12 @@ static void frame_statistics(void)
 	frames++;
 	if (now - period_start >= 10000000000ull)
 	{
-		host_logf(HOST_LOG_INFO, "frames: %.1f per second, slowest %.1f ms, %u over 33 ms",
-			frames * 1e9 / (double)(now - period_start), slowest / 1e6, slow_frames);
+		host_logf(HOST_LOG_INFO, "frames: %.1f per second, slowest %.1f ms, %u over 33 ms; "
+			"%u shaders and %u programs in %.1f ms, %u texture uploads in %.1f ms",
+			frames * 1e9 / (double)(now - period_start), slowest / 1e6, slow_frames,
+			host_gl_timing.shaders, host_gl_timing.programs, host_gl_timing.shader_ns / 1e6,
+			host_gl_timing.textures, host_gl_timing.texture_ns / 1e6);
+		memset(&host_gl_timing, 0, sizeof(host_gl_timing));
 		period_start = now;
 		frames = slow_frames = 0;
 		slowest = 0;

@@ -84,6 +84,13 @@ int host_load_image(const void *elf, size_t size);
 /* the host function for an import name, or NULL (generated table) */
 void *host_resolve_import(const char *name);
 void *host_gl_resolve(const char *name);
+/* the GL work timed so far (host_gl.c) */
+struct gl_timing
+{
+	uint64_t shader_ns, texture_ns;
+	uint32_t shaders, programs, textures;
+};
+extern struct gl_timing host_gl_timing;
 
 /* ---------- threads (host_thread.c) */
 

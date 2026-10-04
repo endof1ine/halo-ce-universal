@@ -13,10 +13,98 @@ is the Android host's).
 #include <EGL/egl.h>
 #include <GLES3/gl32.h>
 #include <string.h>
+#include <switch.h>
+
+/* ---------- timing: the GL work that makes frames late
+
+Shader compiles and links (mesa compiles on the CPU, the first time an
+effect is drawn) and texture uploads are timed here, by wrapping the
+functions the guest imports; host_sdl.c logs the totals with the frame
+rates. */
+
+struct gl_timing host_gl_timing;
+
+static void (GL_APIENTRY *real_compile_shader)(GLuint);
+static void (GL_APIENTRY *real_link_program)(GLuint);
+static void (GL_APIENTRY *real_tex_image_2d)(GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum,
+	const void *);
+static void (GL_APIENTRY *real_tex_sub_image_2d)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum, GLenum,
+	const void *);
+static void (GL_APIENTRY *real_compressed_tex_image_2d)(GLenum, GLint, GLenum, GLsizei, GLsizei, GLint, GLsizei,
+	const void *);
+
+static uint64_t now_ns(void)
+{
+	return armTicksToNs(armGetSystemTick());
+}
+
+static void GL_APIENTRY timed_compile_shader(GLuint shader)
+{
+	uint64_t start = now_ns();
+
+	real_compile_shader(shader);
+	host_gl_timing.shader_ns += now_ns() - start;
+	host_gl_timing.shaders++;
+}
+
+static void GL_APIENTRY timed_link_program(GLuint program)
+{
+	uint64_t start = now_ns();
+
+	real_link_program(program);
+	host_gl_timing.shader_ns += now_ns() - start;
+	host_gl_timing.programs++;
+}
+
+static void GL_APIENTRY timed_tex_image_2d(GLenum target, GLint level, GLint internal_format, GLsizei width,
+	GLsizei height, GLint border, GLenum format, GLenum type, const void *pixels)
+{
+	uint64_t start = now_ns();
+
+	real_tex_image_2d(target, level, internal_format, width, height, border, format, type, pixels);
+	host_gl_timing.texture_ns += now_ns() - start;
+	host_gl_timing.textures++;
+}
+
+static void GL_APIENTRY timed_tex_sub_image_2d(GLenum target, GLint level, GLint x, GLint y, GLsizei width,
+	GLsizei height, GLenum format, GLenum type, const void *pixels)
+{
+	uint64_t start = now_ns();
+
+	real_tex_sub_image_2d(target, level, x, y, width, height, format, type, pixels);
+	host_gl_timing.texture_ns += now_ns() - start;
+	host_gl_timing.textures++;
+}
+
+static void GL_APIENTRY timed_compressed_tex_image_2d(GLenum target, GLint level, GLenum internal_format,
+	GLsizei width, GLsizei height, GLint border, GLsizei size, const void *data)
+{
+	uint64_t start = now_ns();
+
+	real_compressed_tex_image_2d(target, level, internal_format, width, height, border, size, data);
+	host_gl_timing.texture_ns += now_ns() - start;
+	host_gl_timing.textures++;
+}
 
 void *host_gl_resolve(const char *name)
 {
-	return (void *)eglGetProcAddress(name);
+	void *function = (void *)eglGetProcAddress(name);
+
+	if (!function)
+		return NULL;
+#define TIMED(gl_name, real, timed) \
+	if (!strcmp(name, gl_name)) \
+	{ \
+		real = function; \
+		return (void *)timed; \
+	}
+	TIMED("glCompileShader", real_compile_shader, timed_compile_shader)
+	TIMED("glLinkProgram", real_link_program, timed_link_program)
+	TIMED("glTexImage2D", real_tex_image_2d, timed_tex_image_2d)
+	TIMED("glTexSubImage2D", real_tex_sub_image_2d, timed_tex_sub_image_2d)
+	TIMED("glCompressedTexImage2D", real_compressed_tex_image_2d, timed_compressed_tex_image_2d)
+#undef TIMED
+	return function;
 }
 
 /* switch-mesa exports no GL functions, only eglGetProcAddress: the ones used

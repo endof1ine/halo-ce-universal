@@ -6,9 +6,11 @@ Switch's controllers: up to four players, the first one also the console's
 attached Joy-Con (handheld). A gamepad's SDL id is its player number,
 1 to 4.
 
-Buttons go by position, as on the other ports: the bottom face button is
-the Xbox's A (jump), the right one B, the left one X, the top one Y. ZL and
-ZR, which are buttons here, are the triggers at full travel.
+Buttons go by their labels, as the game's prompts read: the Switch's A is
+the Xbox's A (jump), B is B, X is X and Y is Y. input.button_positions =
+true in config.toml maps them by position instead, as the other ports do
+(the bottom face button the Xbox's A). ZL and ZR, which are buttons here,
+are the triggers at full travel.
 
 Rumble: the Xbox's low-frequency (heavy) motor plays in HD rumble's low
 band and its high-frequency one in the high band.
@@ -27,6 +29,7 @@ band and its high-frequency one in the high band.
 #define RUMBLE_STRENGTH 0.6f
 
 static PadState pads[PLAYERS];
+static int by_position;
 static int pad_connected[PLAYERS];
 static Mutex input_lock;
 
@@ -45,6 +48,7 @@ void host_input_initialize(void)
 	int player;
 
 	mutexInit(&input_lock);
+	by_position = host_config_boolean("input.button_positions");
 	padConfigureInput(PLAYERS, HidNpadStyleSet_NpadStandard);
 	padInitialize(&pads[0], HidNpadIdType_No1, HidNpadIdType_Handheld);
 	for (player = 1; player < PLAYERS; player++)
@@ -114,10 +118,11 @@ int host_sdl_gamepad_button(uint32_t gamepad, int button)
 	held = padGetButtons(pad);
 	switch (button)
 	{
-	case SDL_GAMEPAD_BUTTON_SOUTH: mask = HidNpadButton_B; break;
-	case SDL_GAMEPAD_BUTTON_EAST: mask = HidNpadButton_A; break;
-	case SDL_GAMEPAD_BUTTON_WEST: mask = HidNpadButton_Y; break;
-	case SDL_GAMEPAD_BUTTON_NORTH: mask = HidNpadButton_X; break;
+	/* (SDL's south is the Xbox's A, east B, west X, north Y) */
+	case SDL_GAMEPAD_BUTTON_SOUTH: mask = by_position ? HidNpadButton_B : HidNpadButton_A; break;
+	case SDL_GAMEPAD_BUTTON_EAST: mask = by_position ? HidNpadButton_A : HidNpadButton_B; break;
+	case SDL_GAMEPAD_BUTTON_WEST: mask = by_position ? HidNpadButton_Y : HidNpadButton_X; break;
+	case SDL_GAMEPAD_BUTTON_NORTH: mask = by_position ? HidNpadButton_X : HidNpadButton_Y; break;
 	case SDL_GAMEPAD_BUTTON_BACK: mask = HidNpadButton_Minus; break;
 	case SDL_GAMEPAD_BUTTON_START: mask = HidNpadButton_Plus; break;
 	case SDL_GAMEPAD_BUTTON_LEFT_STICK: mask = HidNpadButton_StickL; break;
