@@ -128,7 +128,7 @@ only for the Switch:
 | `display.render_scale_docked` | The same, when the Switch is docked. The game then shows 1080 lines. `1.5` (the default) draws 720 lines, `2.25` all 1080. |
 | `display.dynamic_resolution` | `true` (the default): while the GPU holds the frame rate back, draw fewer lines (down to 480), and more again when it can. Only below a render scale above `1`. |
 | `display.lock_30fps` | `true`: 30 frames a second, steadier than a rate that varies below 60, and lighter on the battery. |
-| `display.async_shaders` | `false` (the default): the game stops while each shader compiles. `true` (experimental): other cores compile them, but with switch-mesa's nouveau driver everything then draws black. |
+| `display.async_shaders` | `false` (the default): the game stops while each shader compiles. `true`: other cores compile them, where their OpenGL contexts can share the game's objects; switch-mesa's cannot, and the game then compiles them itself. |
 | `input.button_positions` | `true`: A, B, X and Y go by their positions, as on an Xbox controller (the bottom button jumps). |
 | `input.gyro_aim` | `true`: turn player 1's controller to aim. The right stick also aims. |
 | `input.gyro_sensitivity` | How far the view turns when you turn the controller. `1`: the same angle. |
@@ -194,9 +194,11 @@ What is different on the Switch:
 - **Shaders.** mesa compiles a shader on the CPU in approximately 40 ms.
   The game records the shaders of each map in
   `/switch/halo/save/shader_warm`, and compiles them again when the map
-  loads, at the CPU's boosted clock. (Compiling them on other threads, with
-  OpenGL contexts of their own, draws everything black with switch-mesa's
-  nouveau driver: `display.async_shaders`, off by default.)
+  loads, at the CPU's boosted clock, for at most 8 seconds: the rest at
+  their first use. (Other threads cannot compile them: switch-mesa's EGL
+  gives their OpenGL contexts none of the game's objects, so a program they
+  make is none to the game's. `display.async_shaders` checks this at the
+  start, and stays off.)
 - **Visibility tests.** The lens flares read the results of their visibility
   tests two frames late, so the CPU does not wait for the GPU.
 - **Movies.** The game's playback code (`bink_playback.c`) calls the Bink

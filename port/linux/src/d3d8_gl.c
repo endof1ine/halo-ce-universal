@@ -2495,6 +2495,10 @@ static struct
 	unsigned long draws_waited, compiled, queued_frames;
 	/* the workers that could use their context, and those that could not */
 	int ready, failed;
+	/* a shader a worker made, which the main thread must see: switch-mesa's
+	EGL makes the contexts without sharing their objects (a program linked
+	on a worker is then no program to the game's, and draws nothing) */
+	GLuint probe;
 } async_shaders = { FALSE, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER };
 
 /* (with the lock) */
@@ -2530,6 +2534,11 @@ static void *async_worker(void *context)
 	BOOL current = platform_gl_make_shared_current(context);
 
 	pthread_mutex_lock(&async_shaders.lock);
+	if (current && !async_shaders.probe)
+	{
+		async_shaders.probe = glCreateShader(GL_VERTEX_SHADER);
+		glFinish();
+	}
 	if (current)
 		async_shaders.ready++;
 	else
@@ -2612,6 +2621,14 @@ static void async_shaders_start(void)
 		pthread_cond_wait(&async_shaders.wake, &async_shaders.lock);
 	async_shaders.enabled = async_shaders.ready > 0;
 	pthread_mutex_unlock(&async_shaders.lock);
+	if (async_shaders.enabled && !(async_shaders.probe && glIsShader(async_shaders.probe)))
+	{
+		/* (the threads stay, idle: they cannot be stopped) */
+		async_shaders.enabled = FALSE;
+		platform_log("shaders: the compiling threads' OpenGL contexts do not share the game's objects; "
+			"compiled on the game's thread");
+		return;
+	}
 	platform_log("shaders: %d compiling threads", async_shaders.ready);
 }
 
@@ -2732,12 +2749,26 @@ static void shader_warm_draw(GLuint program)
 	glDrawArrays(GL_POINTS, 0, 1);
 }
 
+#ifdef HALO_SWITCH
+/* the most of a map's loading the warm-up takes on the game's thread
+(mesa's 40 ms a program adds up) */
+#define SHADER_WARM_SECONDS 8ULL
+
+static unsigned long long shader_warm_now_ns(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (unsigned long long)now.tv_sec * 1000000000ULL + (unsigned long long)now.tv_nsec;
+}
+#endif
+
 void xgpu_shader_warm_map(const char *map)
 {
 	struct shader_warm_record record;
 	char path[600];
 	FILE *file;
-	unsigned long warmed = 0, records = 0;
+	unsigned long warmed = 0, records = 0, late = 0;
 	unsigned long long start;
 	struct timespec time;
 	BOOL stale = FALSE;
@@ -2786,6 +2817,15 @@ void xgpu_shader_warm_map(const char *map)
 			continue;
 		}
 #endif
+#ifdef HALO_SWITCH
+		/* (at most SHADER_WARM_SECONDS of the loading, on the game's
+		thread: the rest at their first draws, the first recorded first) */
+		if (shader_warm_now_ns() - start > SHADER_WARM_SECONDS * 1000000000ULL)
+		{
+			late++;
+			continue;
+		}
+#endif
 		entry = program_get(vertex_shader_get_masked(program, record.immediate != 0, record.packed_mask),
 			fragment_shader_get(&record.key));
 		if (!entry || programs_linked == linked)
@@ -2808,12 +2848,13 @@ void xgpu_shader_warm_map(const char *map)
 		xgpu_gl_state_invalidate();
 	}
 	clock_gettime(CLOCK_MONOTONIC, &time);
-	platform_log("shader warm-up: %lu of %lu programs of %s in %llu ms%s", warmed, records, shader_warm_map,
+	platform_log("shader warm-up: %lu of %lu programs of %s in %llu ms%s; %lu left for their first draws", warmed,
+		records, shader_warm_map,
 		((unsigned long long)time.tv_sec * 1000000000ULL + (unsigned long long)time.tv_nsec - start) / 1000000ULL,
 #ifdef HALO_SWITCH
 		async_shaders.enabled ? " (queued for the compiling threads)" :
 #endif
-		"");
+		"", late);
 }
 
 /* ---------- per-draw state */
