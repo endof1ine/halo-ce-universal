@@ -162,6 +162,9 @@ struct vertex_element
 	unsigned short offset;
 };
 
+/* declarations (packed attribute sets) a program keeps compiled at once */
+#define VERTEX_SHADER_STREAM_VARIANTS 4
+
 struct vertex_shader_object
 {
 	unsigned long signature;
@@ -171,8 +174,12 @@ struct vertex_shader_object
 	struct vertex_element elements[XGPU_VERTEX_ATTRIBUTE_COUNT];
 	unsigned long element_count;
 	unsigned long packed_mask;
-	/* [0] streams per the declaration, [1] immediate mode (all floats) */
-	GLuint shader[2];
+	/* the compiled GLSL: [0] immediate mode (all floats), then streams per
+	the declaration's packed attributes, as a program loaded in a slot runs
+	with whichever declaration is selected */
+	GLuint shader[1 + VERTEX_SHADER_STREAM_VARIANTS];
+	unsigned long shader_packed_mask[1 + VERTEX_SHADER_STREAM_VARIANTS];
+	unsigned long shader_next_variant;
 };
 
 /* ---------- programs */
@@ -226,7 +233,7 @@ struct program_entry
 	unsigned long constant_count;
 	BOOL constants_consecutive;
 	/* constants_serial at the program's last constant upload (constants_store) */
-	unsigned long constants_serial;
+	unsigned long long constants_serial;
 	/* draw_uniforms_serial when the uniforms below were brought up to date */
 	unsigned long uniforms_serial;
 	/* what the program's other uniforms hold (all ones: unknown) */
@@ -641,6 +648,17 @@ static void *vertical_blank_thread(void *unused)
 			next.tv_nsec -= 1000000000L;
 			next.tv_sec++;
 		}
+		{
+			/* after a stall (the process suspended: the Switch's HOME menu,
+			a laptop's sleep) skip the missed blanks rather than call the
+			game back for each of them at once */
+			struct timespec now;
+
+			clock_gettime(CLOCK_MONOTONIC, &now);
+			if ((now.tv_sec - next.tv_sec) * 1000000000LL + (now.tv_nsec - next.tv_nsec) >
+				2LL * VERTICAL_BLANK_NANOSECONDS)
+				next = now;
+		}
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);
 
 		pthread_mutex_lock(&vertical_blank_lock);
@@ -1011,9 +1029,10 @@ void WINAPI Direct3D_SetPushBufferSize(DWORD push_buffer_size, DWORD segment_cou
 
 /* each vertex constant register's serial is the value constants_serial took
 when the register last changed; a program's registers are current up to
-the serial it recorded when it last uploaded them */
-static unsigned long constant_serials[XGPU_VERTEX_CONSTANT_COUNT];
-static unsigned long constants_serial;
+the serial it recorded when it last uploaded them (64 bits: millions of
+changes a second would wrap 32 bits within an hour) */
+static unsigned long long constant_serials[XGPU_VERTEX_CONSTANT_COUNT];
+static unsigned long long constants_serial;
 /* the register each of the latest serials changed, so a program that is
 only a little behind finds its changed registers without a full scan */
 #define CONSTANT_LOG_SIZE 1024
@@ -1816,20 +1835,38 @@ static unsigned long hash_words(const void *data, unsigned long size)
 
 static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate)
 {
-	int variant = immediate ? 1 : 0;
+	unsigned long packed_mask = immediate ? 0 : device.vertex_shader->packed_mask;
+	unsigned long variant;
 
+	if (immediate)
+	{
+		variant = 0;
+	}
+	else
+	{
+		for (variant = 1; variant <= VERTEX_SHADER_STREAM_VARIANTS; variant++)
+		{
+			if (program->shader[variant] && program->shader_packed_mask[variant] == packed_mask)
+				return program->shader[variant];
+		}
+		/* a new declaration: the next slot, the oldest once all are used
+		(its GL shader stays alive in the programs linked with it) */
+		variant = 1 + program->shader_next_variant++ % VERTEX_SHADER_STREAM_VARIANTS;
+		program->shader[variant] = 0;
+	}
 	if (!program->shader[variant])
 	{
-		char *source = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count,
-			immediate ? 0 : device.vertex_shader->packed_mask);
+		char *source = nv2a_vertex_shader_to_glsl(program->instructions, program->instruction_count, packed_mask);
 
 		program->shader[variant] = compile_shader(GL_VERTEX_SHADER, source, "vertex");
+		program->shader_packed_mask[variant] = packed_mask;
 		if (debug_settings.dump_shaders)
 		{
 			char path[512];
 			FILE *file;
 
-			snprintf(path, sizeof(path), "%s/vs%03lu_%d.glsl", debug_settings.dump_shaders, program->id, variant);
+			snprintf(path, sizeof(path), "%s/vs%03lu_%lu_%08lx.glsl", debug_settings.dump_shaders, program->id,
+				variant ? 1UL : 0UL, packed_mask);
 			if ((file = fopen(path, "w")) != NULL)
 			{
 				fputs(source, file);
@@ -2594,7 +2631,7 @@ static struct program_entry *prepare_draw(BOOL immediate)
 
 		if (constants_serial - entry->constants_serial <= XGPU_VERTEX_CONSTANT_COUNT)
 		{
-			unsigned long serial;
+			unsigned long long serial;
 
 			for (serial = entry->constants_serial + 1; serial <= constants_serial; serial++)
 			{
