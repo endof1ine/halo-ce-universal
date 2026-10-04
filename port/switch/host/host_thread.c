@@ -21,8 +21,10 @@ preemptive scheduler), so:
   turn;
 - the audio mixer runs above them on core 2.
 
-The guest's thread pointer (its musl struct pthread) is kept for each
-thread in host TLS.
+The guest's thread pointer (its musl struct pthread) is each thread's
+tpidr_el0, which the kernel keeps for each thread and libnx leaves alone
+(its own is tpidrro_el0): the guest reads and sets it itself
+(port/android/guest/libc/arch/arm64_32/pthread_arch.h).
 */
 
 #include "host.h"
@@ -37,16 +39,27 @@ thread in host TLS.
 #define PREEMPTIVE_PRIORITY 0x3b
 #define AUDIO_PRIORITY 0x2b
 
-static __thread uint32_t guest_tp;
+static inline uint32_t thread_pointer(void)
+{
+	uint64_t value;
+
+	__asm__ volatile ("mrs %0, tpidr_el0" : "=r"(value));
+	return (uint32_t)value;
+}
+
+static inline void thread_pointer_set(uint32_t value)
+{
+	__asm__ volatile ("msr tpidr_el0, %0" : : "r"((uint64_t)value));
+}
 
 uint32_t host_get_tp(void)
 {
-	return guest_tp;
+	return thread_pointer();
 }
 
 void host_set_tp(uint32_t thread)
 {
-	guest_tp = thread;
+	thread_pointer_set(thread);
 }
 
 /* uint64_t call_on_stack(void *(*function)(void *), void *argument, void *stack_top):
@@ -109,7 +122,7 @@ uint32_t host_call_guest(uint32_t function, uint32_t a, uint32_t b, uint32_t c, 
 {
 	if (!on_guest_stack())
 		host_fatal("guest code was called on a thread without a guest stack");
-	if (!guest_tp)
+	if (!thread_pointer())
 		((guest_function)(uintptr_t)host_image.header->thread_attach)(0, 0, 0, 0);
 	return ((guest_function)(uintptr_t)function)(a, b, c, d);
 }
@@ -174,8 +187,10 @@ static void thread_main(void *context)
 {
 	struct thread_start *start = context;
 
+	/* (a new thread is not the guest's yet) */
+	thread_pointer_set(0);
 	call_on_stack(start->function, start->argument, (char *)start->stack.mapping + start->stack.size);
-	guest_tp = 0;
+	thread_pointer_set(0);
 	mutexLock(&reaper_lock);
 	start->next_finished = finished_threads;
 	finished_threads = start;

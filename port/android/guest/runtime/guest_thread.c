@@ -52,6 +52,17 @@ uintptr_t __guest_get_tp(void)
 	return host_get_tp();
 }
 
+/* the thread's struct pthread, where __get_tp finds it (pthread_arch.h): on
+the Switch tpidr_el0, which the host's host_get_tp reads too */
+static void thread_pointer_set(unsigned int thread)
+{
+#ifdef HALO_SWITCH
+	__asm__ volatile ("msr tpidr_el0, %0" : : "r"((unsigned long long)thread));
+#else
+	host_set_tp(thread);
+#endif
+}
+
 static void thread_initialize(struct guest_thread *thread)
 {
 	struct pthread *td = &thread->pthread;
@@ -68,7 +79,7 @@ static void thread_initialize(struct guest_thread *thread)
 void __guest_thread_initialize_main(void)
 {
 	thread_initialize(&main_thread);
-	host_set_tp((unsigned int)&main_thread);
+	thread_pointer_set((unsigned int)&main_thread);
 	main_thread.pthread.tid = __syscall(SYS_gettid);
 	libc.can_do_threads = 1;
 	/* lock stdio from the start: the platform layer logs from several
@@ -95,7 +106,7 @@ void __guest_thread_start(unsigned int handle)
 	struct guest_thread *thread = (struct guest_thread *)handle;
 	void *result;
 
-	host_set_tp(handle);
+	thread_pointer_set(handle);
 	thread->pthread.tid = __syscall(SYS_gettid);
 	result = thread->start(thread->argument);
 	thread->pthread.result = result;
@@ -107,7 +118,7 @@ void __guest_thread_start(unsigned int handle)
 	{
 		__wake(&thread->state, -1, 1);
 	}
-	host_set_tp(0);
+	thread_pointer_set(0);
 }
 
 /* a host thread (the audio callback's, for instance) is about to run
@@ -120,7 +131,7 @@ unsigned int __guest_thread_attach(void)
 		host_abort("cannot allocate a guest thread");
 	thread_initialize(thread);
 	thread->state = _thread_detached;
-	host_set_tp((unsigned int)thread);
+	thread_pointer_set((unsigned int)thread);
 	thread->pthread.tid = __syscall(SYS_gettid);
 	return (unsigned int)thread;
 }
