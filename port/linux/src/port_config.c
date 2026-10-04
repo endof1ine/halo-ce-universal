@@ -83,7 +83,12 @@ static const struct config_setting config_settings[] =
 		"Xbox's 4:3." },
 	{ "display.render_scale", _config_real, "1.0", "HALO_RENDER_SCALE", _environment_value, _platform_guest,
 		"The screen's pixels drawn for each of the 480 lines: 1 the Xbox's, up to 3\n"
-		"(1.5: the Switch's 720 lines). More is sharper and asks more of the GPU." },
+		"(1.5: the Switch's 720 lines). More is sharper and asks more of the GPU.\n"
+		"On the Switch, in handheld mode." },
+	{ "display.render_scale_docked", _config_real, "1.5", "HALO_RENDER_SCALE_DOCKED", _environment_value,
+		_platform_switch,
+		"display.render_scale while the Switch is docked (a television of 1080\n"
+		"lines): 2.25 draws all of them." },
 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
 		"Wait for the display between frames; false draws as fast as possible." },
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_desktop,

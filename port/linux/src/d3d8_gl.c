@@ -100,9 +100,17 @@ static void screen_mode_choose(long *width, float scale[2])
 		*width = 1600;
 	*width &= ~1L;
 	/* display.render_scale: the screen's pixels for each of the 480 lines,
-	1 (the Xbox's) to 3 */
+	1 (the Xbox's) to 3; on the Switch docked (a screen of more than 720
+	lines) display.render_scale_docked */
 	{
 		double render_scale = config_real("display.render_scale");
+#ifdef HALO_SWITCH
+		int pixel_width = 0, pixel_height = 0;
+
+		platform_video_drawable_size(&pixel_width, &pixel_height);
+		if (pixel_height > 720)
+			render_scale = config_real("display.render_scale_docked");
+#endif
 
 		if (render_scale < 1.0)
 			render_scale = 1.0;

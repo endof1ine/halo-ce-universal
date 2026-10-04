@@ -24,9 +24,12 @@ pointer, which are all the guest reads.
 #include <strings.h>
 #include <switch.h>
 
-/* the screen's size; docked, the system scales it to the television */
-#define SCREEN_WIDTH 1280
-#define SCREEN_HEIGHT 720
+/* the screen's size: the console's in handheld mode, 1080 lines docked (the
+surface is made again when the console is docked or taken out) */
+#define HANDHELD_WIDTH 1280
+#define HANDHELD_HEIGHT 720
+#define DOCKED_WIDTH 1920
+#define DOCKED_HEIGHT 1080
 #define WINDOW_HANDLE 1
 #define CONTEXT_HANDLE 1
 #define EVENT_QUEUE_SIZE 64
@@ -92,6 +95,8 @@ void host_sdl_queue_mouse_motion(float x, float y)
 	queue_event(&event);
 }
 
+static void surface_resize(int docked);
+
 /* the applet's messages: HOME and sleep take the focus, the system asks
 the program to close */
 void host_sdl_applet_update(void)
@@ -126,6 +131,7 @@ void host_sdl_applet_update(void)
 	{
 		mode = appletGetOperationMode();
 		host_logf(HOST_LOG_INFO, "%s", mode == AppletOperationMode_Console ? "docked" : "handheld");
+		surface_resize(mode == AppletOperationMode_Console);
 	}
 }
 
@@ -195,6 +201,7 @@ int64_t host_sdl_thread_id(void)
 static EGLDisplay display = EGL_NO_DISPLAY;
 static EGLSurface surface = EGL_NO_SURFACE;
 static EGLConfig config;
+static int surface_width = HANDHELD_WIDTH, surface_height = HANDHELD_HEIGHT, swap_interval = 1;
 /* [CONTEXT_HANDLE] the game's; the others share its objects (its shader
 compiling threads, d3d8_gl.c), and are made current without a surface */
 #define CONTEXTS 4
@@ -230,7 +237,12 @@ uint32_t host_sdl_create_window(const char *title, int width, int height, int64_
 		set_error("no EGL configuration");
 		return 0;
 	}
-	nwindowSetDimensions(nwindowGetDefault(), SCREEN_WIDTH, SCREEN_HEIGHT);
+	if (appletGetOperationMode() == AppletOperationMode_Console)
+	{
+		surface_width = DOCKED_WIDTH;
+		surface_height = DOCKED_HEIGHT;
+	}
+	nwindowSetDimensions(nwindowGetDefault(), (u32)surface_width, (u32)surface_height);
 	surface = eglCreateWindowSurface(display, config, nwindowGetDefault(), NULL);
 	if (surface == EGL_NO_SURFACE)
 	{
@@ -243,8 +255,8 @@ uint32_t host_sdl_create_window(const char *title, int width, int height, int64_
 void host_sdl_window_size_in_pixels(uint32_t window, int *width, int *height)
 {
 	(void)window;
-	*width = SCREEN_WIDTH;
-	*height = SCREEN_HEIGHT;
+	*width = surface_width;
+	*height = surface_height;
 }
 
 int host_sdl_set_relative_mouse(uint32_t window, int enabled)
@@ -326,7 +338,30 @@ int host_sdl_gl_make_current(uint32_t window, uint32_t gl_context)
 
 int host_sdl_gl_set_swap_interval(int interval)
 {
+	swap_interval = interval;
 	return eglSwapInterval(display, interval) ? 1 : 0;
+}
+
+/* docked or taken out: the window's surface again at the screen's size,
+between frames on the game's thread (its context's), which the game's
+next frame draws to (d3d8_gl.c reads the size every frame) */
+static void surface_resize(int docked)
+{
+	int width = docked ? DOCKED_WIDTH : HANDHELD_WIDTH, height = docked ? DOCKED_HEIGHT : HANDHELD_HEIGHT;
+
+	if (surface == EGL_NO_SURFACE || !contexts[CONTEXT_HANDLE] || width == surface_width)
+		return;
+	eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+	eglDestroySurface(display, surface);
+	nwindowSetDimensions(nwindowGetDefault(), (u32)width, (u32)height);
+	surface = eglCreateWindowSurface(display, config, nwindowGetDefault(), NULL);
+	if (surface == EGL_NO_SURFACE)
+		host_fatal("Cannot draw to the screen after docking (EGL 0x%x).", eglGetError());
+	eglMakeCurrent(display, surface, surface, contexts[CONTEXT_HANDLE]);
+	eglSwapInterval(display, swap_interval);
+	surface_width = width;
+	surface_height = height;
+	host_logf(HOST_LOG_INFO, "screen %dx%d", width, height);
 }
 
 /* frame times, logged every 10 seconds: the average rate, the slowest
