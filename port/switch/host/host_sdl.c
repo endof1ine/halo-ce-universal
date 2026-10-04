@@ -139,16 +139,27 @@ void host_sdl_applet_update(void)
 
 int host_sdl_poll_event(void *event)
 {
+	/* a round's events drained: the next empty poll ends the guest's
+	while (SDL_PollEvent) instead of polling again (the gyro's motion
+	alone would never let it end) */
+	static int drained;
 	int found = 0;
 
 	mutexLock(&event_lock);
 	if (!event_count)
 	{
+		if (drained)
+		{
+			drained = 0;
+			mutexUnlock(&event_lock);
+			return 0;
+		}
 		mutexUnlock(&event_lock);
 		/* a new round of polling: the applet and the controllers */
 		host_sdl_applet_update();
 		host_input_update();
 		mutexLock(&event_lock);
+		drained = event_count != 0;
 	}
 	if (event_count)
 	{

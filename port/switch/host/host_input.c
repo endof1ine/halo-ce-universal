@@ -259,7 +259,13 @@ static void gyro_update(void)
 		return;
 	seconds = gyro.last_tick ? (float)armTicksToNs(tick - gyro.last_tick) / 1e9f : 0.0f;
 	gyro.last_tick = tick;
-	/* (after a pause - a menu, HOME - the controller's turn is not the view's) */
+	/* (after a pause - a menu, HOME - the controller's turn is not the view's,
+	nor are the turn rates from before it to smooth with) */
+	if (seconds > 0.1f)
+	{
+		memset(gyro.recent_yaw, 0, sizeof(gyro.recent_yaw));
+		memset(gyro.recent_pitch, 0, sizeof(gyro.recent_pitch));
+	}
 	if (seconds <= 0.0f || seconds > 0.1f)
 		return;
 	sensor = gyro_sensor();
@@ -514,6 +520,8 @@ static int rumble_devices(int player, struct rumble *rumble)
 			return 0;
 		}
 		rumble->style = (u32)style;
+		/* (the new devices are still) */
+		rumble->low = rumble->high = 0;
 	}
 	return rumble->count;
 }
@@ -524,10 +532,8 @@ static void rumble_send(int player, uint32_t low, uint32_t high)
 	HidVibrationValue values[2];
 	int count, index;
 
-	if (low == rumble->low && high == rumble->high)
-		return;
 	count = rumble_devices(player, rumble);
-	if (!count)
+	if (!count || (low == rumble->low && high == rumble->high))
 		return;
 	for (index = 0; index < count; index++)
 	{
