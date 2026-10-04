@@ -67,6 +67,11 @@ void platform_video_drawable_size(int *width, int *height);
 just written it (the main thread's) */
 void platform_display_apply(void);
 void platform_video_swap(void);
+/* an OpenGL context sharing the game's objects (its shaders and programs),
+for a thread of its own, and making it current on the calling thread
+(without the window's surface); NULL or FALSE when the driver cannot */
+void *platform_gl_create_shared_context(void);
+BOOL platform_gl_make_shared_current(void *context);
 /* frames between the 30 Hz ticks at the display's refresh rate, unless
 display.interpolation is false (port/linux/game/render_interpolation.c) */
 int halo_interpolation_enabled(void);

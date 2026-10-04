@@ -195,8 +195,11 @@ int64_t host_sdl_thread_id(void)
 static EGLDisplay display = EGL_NO_DISPLAY;
 static EGLSurface surface = EGL_NO_SURFACE;
 static EGLConfig config;
-static EGLContext context = EGL_NO_CONTEXT;
-static int requested_major = 3, requested_minor = 2;
+/* [CONTEXT_HANDLE] the game's; the others share its objects (its shader
+compiling threads, d3d8_gl.c), and are made current without a surface */
+#define CONTEXTS 4
+static EGLContext contexts[CONTEXTS];
+static int requested_major = 3, requested_minor = 2, requested_share;
 
 uint32_t host_sdl_create_window(const char *title, int width, int height, int64_t flags)
 {
@@ -257,6 +260,8 @@ int host_sdl_gl_set_attribute(int attribute, int value)
 		requested_major = value;
 	else if (attribute == SDL_GL_CONTEXT_MINOR_VERSION)
 		requested_minor = value;
+	else if (attribute == SDL_GL_SHARE_WITH_CURRENT_CONTEXT)
+		requested_share = value;
 	return 1;
 }
 
@@ -268,24 +273,55 @@ uint32_t host_sdl_gl_create_context(uint32_t window)
 		EGL_NONE,
 	};
 
+	uint32_t handle;
+
 	if (window != WINDOW_HANDLE || surface == EGL_NO_SURFACE)
 		return 0;
-	if (context == EGL_NO_CONTEXT)
-		context = eglCreateContext(display, config, EGL_NO_CONTEXT, attributes);
-	if (context == EGL_NO_CONTEXT)
+	if (!contexts[CONTEXT_HANDLE] || !requested_share)
 	{
-		set_error("eglCreateContext failed");
+		if (!contexts[CONTEXT_HANDLE])
+			contexts[CONTEXT_HANDLE] = eglCreateContext(display, config, EGL_NO_CONTEXT, attributes);
+		if (!contexts[CONTEXT_HANDLE])
+		{
+			set_error("eglCreateContext failed");
+			return 0;
+		}
+		host_logf(HOST_LOG_INFO, "OpenGL ES %d.%d context", requested_major, requested_minor);
+		return CONTEXT_HANDLE;
+	}
+	for (handle = CONTEXT_HANDLE + 1; handle < CONTEXTS; handle++)
+	{
+		if (!contexts[handle])
+			break;
+	}
+	if (handle == CONTEXTS)
+	{
+		set_error("no more contexts");
 		return 0;
 	}
-	host_logf(HOST_LOG_INFO, "OpenGL ES %d.%d context", requested_major, requested_minor);
-	return CONTEXT_HANDLE;
+	contexts[handle] = eglCreateContext(display, config, contexts[CONTEXT_HANDLE], attributes);
+	if (!contexts[handle])
+	{
+		set_error("eglCreateContext (shared) failed");
+		host_logf(HOST_LOG_WARN, "cannot create a shared OpenGL context: 0x%x", eglGetError());
+		return 0;
+	}
+	return handle;
 }
 
 int host_sdl_gl_make_current(uint32_t window, uint32_t gl_context)
 {
-	if (window != WINDOW_HANDLE || gl_context != CONTEXT_HANDLE)
+	if (window != WINDOW_HANDLE || !gl_context || gl_context >= CONTEXTS || !contexts[gl_context])
 		return eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT) ? 1 : 0;
-	return eglMakeCurrent(display, surface, surface, context) ? 1 : 0;
+	if (gl_context == CONTEXT_HANDLE)
+		return eglMakeCurrent(display, surface, surface, contexts[gl_context]) ? 1 : 0;
+	/* (the window's surface is the game's thread's: EGL_KHR_surfaceless_context) */
+	if (!eglMakeCurrent(display, EGL_NO_SURFACE, EGL_NO_SURFACE, contexts[gl_context]))
+	{
+		host_logf(HOST_LOG_WARN, "cannot make a shared OpenGL context current: 0x%x", eglGetError());
+		return 0;
+	}
+	return 1;
 }
 
 int host_sdl_gl_set_swap_interval(int interval)

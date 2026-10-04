@@ -369,6 +369,9 @@ static const struct config_setting config_settings[] =
 		_platform_switch, "Gyro aiming turns the view the other way sideways." },
 	{ "input.gyro_invert_y", _config_boolean, "false", "HALO_GYRO_INVERT_Y", _environment_value,
 		_platform_switch, "Gyro aiming turns the view the other way up and down." },
+	{ "display.async_shaders", _config_boolean, "true", "HALO_ASYNC_SHADERS", _environment_value, _platform_switch,
+		"Compile shaders on other cores: an effect seen for the first time appears\n"
+		"a frame or two late instead of stopping the game while it compiles." },
 	{ "input.gyro_aim_assist", _config_boolean, "true", "HALO_GYRO_AIM_ASSIST", _environment_value,
 		_platform_switch,
 		"Magnetism while aiming with the gyro, as with the stick: the view slowed\n"
