@@ -278,9 +278,41 @@ int host_sdl_gl_set_swap_interval(int interval)
 	return eglSwapInterval(display, interval) ? 1 : 0;
 }
 
+/* frame times, logged every 10 seconds: the average rate, the slowest
+frame and the frames over 33 ms (below 30 per second) */
+static void frame_statistics(void)
+{
+	static uint64_t period_start, last_frame, slowest;
+	static unsigned frames, slow_frames;
+	uint64_t now = armTicksToNs(armGetSystemTick());
+
+	if (last_frame)
+	{
+		uint64_t duration = now - last_frame;
+
+		if (duration > slowest)
+			slowest = duration;
+		if (duration > 33333333ull)
+			slow_frames++;
+	}
+	last_frame = now;
+	if (!period_start)
+		period_start = now;
+	frames++;
+	if (now - period_start >= 10000000000ull)
+	{
+		host_logf(HOST_LOG_INFO, "frames: %.1f per second, slowest %.1f ms, %u over 33 ms",
+			frames * 1e9 / (double)(now - period_start), slowest / 1e6, slow_frames);
+		period_start = now;
+		frames = slow_frames = 0;
+		slowest = 0;
+	}
+}
+
 int host_sdl_gl_swap_window(uint32_t window)
 {
 	(void)window;
+	frame_statistics();
 	return eglSwapBuffers(display, surface) ? 1 : 0;
 }
 
