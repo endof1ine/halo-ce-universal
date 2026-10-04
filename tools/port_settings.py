@@ -227,15 +227,16 @@ XBOX_STAND_INS = {
     f"{_GAMETYPE_PNG}__4.png": (_XBOX_GAMETYPE, 4),
     f"{_GAMETYPE_PNG}__6.png": (_XBOX_GAMETYPE, 2),
     f"{_GAMETYPE_PNG}__7.png": (_XBOX_GAMETYPE, 5),
-    # (the controller's settings: controls, mouse or gyro; a television;
-    # the consoles linked)
+    # (the controller's settings: controls, mouse or gyro; a television, for
+    # the sound and the picture; the consoles linked)
     f"{_PROFILE_PNG}__1.png": (_XBOX_PROFILE, 2),
     f"{_PROFILE_PNG}__3.png": (_XBOX_PROFILE, 2),
+    f"{_PROFILE_PNG}__4.png": (_XBOX_MP, 0),
     f"{_PROFILE_PNG}__5.png": (_XBOX_MP, 0),
     f"{_PROFILE_PNG}__6.png": (_XBOX_MP, 2),
 }
-# (Audio Setup's and About's: nothing like them)
-BLANK_FRAMES = {f"{_PROFILE_PNG}__4.png", f"{_PROFILE_PNG}__8.png"}
+# (About's: nothing like it)
+BLANK_FRAMES = {f"{_PROFILE_PNG}__8.png"}
 BLANK_PICTURE = "ce/port/blank_picture.png"
 
 

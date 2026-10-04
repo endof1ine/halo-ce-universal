@@ -297,7 +297,7 @@
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="2" platform="desktop android"/>
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="1"/>
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="2"/>
-		<frame png="ce/port/blank_picture.png" width="512" height="256"/>
+		<frame map="ui\shell\main_menu\multiplayer_type_select\mp_options" index="0"/>
 		<frame map="ui\shell\main_menu\multiplayer_type_select\mp_options" index="0"/>
 		<frame map="ui\shell\main_menu\multiplayer_type_select\mp_options" index="2"/>
 		<frame map="ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options" index="3"/>
