@@ -119,9 +119,17 @@ int posix_set_read_only(const char *path, int read_only)
 
 	if (stat(path, &st) != 0)
 		return -1;
+#ifdef __SWITCH__
+	/* (the SD card's FAT keeps no permissions, and libnx has no chmod: a
+	failure here failed every file_delete, which clears the flag first) */
+	(void)mode;
+	(void)read_only;
+	return 0;
+#else
 	mode = st.st_mode & 07777;
 	mode = read_only ? (mode & ~(mode_t)0222) : (mode | S_IWUSR);
 	return chmod(path, mode);
+#endif
 }
 
 int posix_make_directory(const char *path)
