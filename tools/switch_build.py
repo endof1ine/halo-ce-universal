@@ -105,7 +105,7 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
     ), config, [Path("port/android/host_imports.list")])
 
     n.build(outputs="switch_guest", rule="phony", inputs=guest.image)
-    _generate_host(n, devkitpro, guest.image, guest.host_import_table)
+    _generate_host(n, devkitpro, guest.image, guest.host_import_table, getattr(sln, "port_release", False))
     n.newline()
 
 
@@ -123,7 +123,7 @@ def _version() -> str:
         return "0"
 
 
-def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path) -> None:
+def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path, release: bool) -> None:
     """The libnx host (port/switch/host) and the program, build/switch/halo.nro."""
     host_dir = BUILD / "host"
     obj_dir = host_dir / "obj"
@@ -153,6 +153,7 @@ def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path) 
     )
     host_cflags = " ".join([
         HOST_ARCH, "-O2", "-g", "-Wall", "-Wno-unused-function", "-ffunction-sections", "-D__SWITCH__",
+        *(["-DHALO_RELEASE"] if release else []),
         f"-I{PORT_DIR}/host", f"-I{include_dir}", "-Iport/android/include", f"-I{LINUX_DIR}/src", f"-I{TOML_DIR}",
         f"-I{SDL_DIR}/include", f"-I{devkitpro}/libnx/include", f"-I{devkitpro}/portlibs/switch/include",
     ])

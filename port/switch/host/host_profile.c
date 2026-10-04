@@ -13,7 +13,8 @@ an offset from the base logged with them). Samples of the thread in a
 system call (waiting for the GPU, a lock, the vertical blank) cannot be
 read and are counted as "waiting".
 
-On unless debug.profile = false in config.toml.
+On in debug builds unless debug.profile = false in config.toml; in release
+builds only with debug.profile = true.
 */
 
 #include "host.h"
@@ -193,7 +194,11 @@ static void profiler_main(void *unused)
 
 void host_profile_start(void)
 {
+#ifdef HALO_RELEASE
+	if (!host_config_boolean_default("debug.profile", 0))
+#else
 	if (!host_config_boolean_default("debug.profile", 1))
+#endif
 		return;
 	sampled = envGetMainThreadHandle();
 	/* (on core 1: the main thread's core is its own) */
