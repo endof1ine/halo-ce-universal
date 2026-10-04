@@ -101,6 +101,14 @@ HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 		platform_log("movie %s: none (its folder is next to maps/)", name);
 		return NULL;
 	}
+	/* (bink_playback.c ends a movie at its next to last frame: one of no
+	known length would never end) */
+	if (!description[2])
+	{
+		platform_log("movie %s: no frame count, skipped", name);
+		host_bink_close(movie);
+		return NULL;
+	}
 	bink = calloc(1, sizeof(*bink));
 	if (!bink)
 	{

@@ -501,10 +501,21 @@ int posix_socket_select(int *read, int *read_count, int *write, int *write_count
 /* the first IPv4 address of an interface that is up, running, not
 loopback and has these flags; or 0 */
 #ifdef __SWITCH__
+/* libnx's gethostid: the console's address on its network (nifm), in network
+order; without one INADDR_LOOPBACK, in the host's order. 0 then */
+static posix_ulong switch_address(void)
+{
+	posix_ulong address = (posix_ulong)gethostid();
+
+	if (address == INADDR_LOOPBACK || (ntohl(address) >> 24) == 127)
+		return 0;
+	return address;
+}
+
 static posix_ulong interface_address(unsigned int flags)
 {
 	(void)flags;
-	return (posix_ulong)gethostid();
+	return switch_address();
 }
 #else
 static posix_ulong interface_address(unsigned int flags)
@@ -567,9 +578,8 @@ posix_ulong posix_local_ipv4_address(void)
 	int probe;
 
 #ifdef __SWITCH__
-	/* libnx's gethostid is the console's address on its network (nifm) */
-	result = (posix_ulong)gethostid();
-	if (result && (ntohl(result) >> 24) != 127)
+	result = switch_address();
+	if (result)
 		return result;
 #endif
 #ifdef __ANDROID__
