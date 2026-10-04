@@ -336,9 +336,9 @@ void host_low_unmap(void *address, size_t size)
 
 	if (!in_range(start, length, ARENA_BASE, ARENA_END))
 		return;
-	/* no access, so a stray use of freed memory faults (Atmosphère's crash
-	report names it) instead of corrupting what reuses it */
-	set_permission(start, length, Perm_None);
+	/* (the pages keep their permission: each change splits the kernel's
+	memory blocks, which a process has a limited number of, and musl's
+	malloc maps and unmaps often) */
 	mutexLock(&memory_lock);
 	pages_mark((start - ARENA_BASE) / PAGE, length / PAGE, 0);
 	if ((start - ARENA_BASE) / PAGE < arena_hint)
