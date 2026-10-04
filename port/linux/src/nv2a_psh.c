@@ -501,6 +501,46 @@ static void texture_stage(struct xgpu_text *text, const struct nv2a_pixel_shader
 		xgpu_text_append(text, "\tif (t%d.a == 0.0) discard;\n", stage);
 }
 
+/* ---------- keys */
+
+/* clears what the shader made from the key does not read, so that draws
+differing only there share a shader (and a program): each one takes some
+40 ms to compile on the Switch. As nv2a_pixel_shader_to_glsl reads it: the
+combiner stages past PSCOMBINERCOUNT, the fog table without fog, and the
+signs and alpha kill of texture stages that sample nothing */
+void nv2a_pixel_shader_key_normalize(struct nv2a_pixel_shader_key *key)
+{
+	DWORD *state = key->combiner_state;
+	unsigned long combiner_count = state[D3DRS_PSCOMBINERCOUNT] & 0xff;
+	int stage;
+
+	if (combiner_count > 8)
+		combiner_count = 8;
+	for (stage = (int)combiner_count; stage < 8; stage++)
+	{
+		state[D3DRS_PSALPHAINPUTS0 + stage] = 0;
+		state[D3DRS_PSALPHAOUTPUTS0 + stage] = 0;
+		state[D3DRS_PSRGBINPUTS0 + stage] = 0;
+		state[D3DRS_PSRGBOUTPUTS0 + stage] = 0;
+	}
+	if (!key->fog_enable)
+		key->fog_table_mode = 0;
+	for (stage = 0; stage < 4; stage++)
+	{
+		unsigned long mode = stage_mode(key, stage);
+
+		/* (texture_stage's rule) */
+		if (key->sampler_type[stage] == _xgpu_sampler_none &&
+			mode != _mode_passthru && mode != _mode_clipplane && mode != _mode_dot_product && mode != _mode_dot_zw)
+			mode = _mode_none;
+		if (mode == _mode_none)
+		{
+			key->color_sign[stage] = 0;
+			key->alpha_kill[stage] = 0;
+		}
+	}
+}
+
 /* ---------- the whole shader */
 
 static const char *comparison_operator(unsigned long function)

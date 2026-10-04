@@ -109,6 +109,8 @@ struct nv2a_pixel_shader_key
 };
 
 char *nv2a_pixel_shader_to_glsl(const struct nv2a_pixel_shader_key *key);
+/* clears what the shader does not read (nv2a_psh.c) */
+void nv2a_pixel_shader_key_normalize(struct nv2a_pixel_shader_key *key);
 
 #ifdef HALO_GUEST
 /* ES samplers have no LOD bias of their own */

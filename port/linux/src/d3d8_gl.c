@@ -1971,15 +1971,18 @@ static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immed
 
 typedef char pixel_shader_key_size_assert[sizeof(struct nv2a_pixel_shader_key) % 4 == 0 ? 1 : -1];
 
-static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *key)
+static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *unnormalized)
 {
 	/* consecutive draws mostly use the same pixel shader */
 	static struct fragment_entry *last;
+	struct nv2a_pixel_shader_key normalized = *unnormalized;
+	const struct nv2a_pixel_shader_key *key = &normalized;
 	unsigned long hash;
 	struct fragment_entry **bucket;
 	struct fragment_entry *entry;
 	char *source;
 
+	nv2a_pixel_shader_key_normalize(&normalized);
 	if (last && !memcmp(&last->key, key, sizeof(*key)))
 		return last->shader;
 	hash = hash_words(key, sizeof(*key));
