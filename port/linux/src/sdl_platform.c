@@ -898,11 +898,19 @@ static void platform_show_pending_message(void)
 
 /* ---------- events */
 
+#ifdef HALO_SWITCH
+/* the menus' Quit, taken up when the events are next read */
+static volatile int quit_requested;
+#endif
+
 /* quits as closing the window does, when the events are next read (the
 menus' Quit: port/linux/game/menu_functions.c); Android's menus have none,
 as the system closes its apps */
 void platform_request_quit(void)
 {
+#ifdef HALO_SWITCH
+	quit_requested = 1;
+#endif
 #ifndef HALO_GUEST
 	SDL_Event event;
 
@@ -986,6 +994,14 @@ void platform_pump_events(void)
 	platform_show_pending_message();
 #ifndef HALO_GUEST
 	updater_poll(platform_window);
+#endif
+#ifdef HALO_SWITCH
+	if (quit_requested)
+	{
+		/* (back to the HOME menu, as the system's own closing does) */
+		platform_log("quit from the menus");
+		exit(EXIT_SUCCESS);
+	}
 #endif
 	pthread_mutex_lock(&input_lock);
 	while (SDL_PollEvent(&event))
