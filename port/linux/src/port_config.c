@@ -383,6 +383,9 @@ static const struct config_setting config_settings[] =
 	{ "display.lock_30fps", _config_boolean, "false", "HALO_LOCK_30FPS", _environment_value, _platform_switch,
 		"30 frames a second with vsync, steadier than a rate that varies below\n"
 		"60, and lighter on the battery." },
+	{ "display.movies", _config_boolean, "true", "HALO_MOVIES", _environment_value, _platform_switch,
+		"Play the game's movies (the intro, the attract mode, the credits); off\n"
+		"skips them, as when their files are missing." },
 	{ "display.dynamic_resolution", _config_boolean, "true", "HALO_DYNAMIC_RESOLUTION", _environment_value,
 		_platform_switch,
 		"Lower the resolution a step while the GPU holds the frame rate back, and\n"

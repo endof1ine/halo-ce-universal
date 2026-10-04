@@ -112,7 +112,7 @@ it sets the keyboard's keys.
 
 | Menu | Switch settings |
 | --- | --- |
-| Video Setup | Handheld Resolution, Docked Resolution, Dynamic Resolution, 30 FPS Lock |
+| Video Setup | Handheld Resolution, Docked Resolution, Dynamic Resolution, Movies, 30 FPS Lock |
 | Gamepads | Face Buttons |
 | Gyro Setup (Mouse Setup on a computer) | Gyro Aiming, Gyro Sensitivity, Invert Horizontal, Invert Vertical, Gyro Aim Assist |
 
@@ -126,6 +126,7 @@ only for the Switch:
 | --- | --- |
 | `display.render_scale` | The screen's pixels for each of the 480 lines of the game, in handheld mode. `1` (the default) is the Xbox's. `1.5` is the 720 lines of the Switch's screen: sharper, and more work for the GPU. |
 | `display.render_scale_docked` | The same, when the Switch is docked. The game then shows 1080 lines. `1.5` (the default) draws 720 lines, `2.25` all 1080. |
+| `display.movies` | `true` (the default): play the movies. `false`: skip them. |
 | `display.dynamic_resolution` | `true` (the default): while the GPU holds the frame rate back, draw fewer lines (down to 480), and more again when it can. Only below a render scale above `1`. |
 | `display.lock_30fps` | `true`: 30 frames a second, steadier than a rate that varies below 60, and lighter on the battery. |
 | `display.async_shaders` | `false` (the default): the game stops while each shader compiles. `true`: other cores compile them, where their OpenGL contexts can share the game's objects; switch-mesa's cannot, and the game then compiles them itself. |

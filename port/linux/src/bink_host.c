@@ -13,6 +13,7 @@ RADEXPLINK is __stdcall.
 #ifdef HALO_SWITCH
 
 #include "platform.h"
+#include "port_config.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -90,6 +91,9 @@ HBINK __stdcall BinkOpen(const char *name, unsigned long flags)
 	unsigned int movie;
 
 	(void)flags;
+	/* (display.movies off: as if there were none) */
+	if (!config_boolean("display.movies"))
+		return NULL;
 	platform_translate_path(name, path, sizeof(path));
 	movie = host_bink_open(path, description);
 	if (!movie)

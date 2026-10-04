@@ -55,6 +55,8 @@ SCREENS = {
              "The lines drawn when docked: 1080 is the\ntelevision's own, sharper and more work.", "switch"),
             ("DYNAMIC RESOLUTION:", "display.dynamic_resolution", ON_OFF,
              "Draw fewer lines while the GPU holds the frame\nrate back, and more again when it can.", "switch"),
+            ("MOVIES:", "display.movies", ON_OFF,
+             "Play the intro, the menu's attract mode and the\ncredits; off skips them.", "switch"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Wait for the display between frames, so that the\npicture never tears.", None),
             ("30 FPS LOCK:", "display.lock_30fps", ON_OFF,
