@@ -55,10 +55,15 @@ versions operate.
 2. Copy `maps/` to `/switch/halo/maps/` on the SD card (approximately
    1.8 GB): with a card reader, with hekate's USB mass storage, or with an
    FTP program on the Switch (ftpd).
+3. For the movies (the intro, the menu's attract mode and the credits), also
+   copy the disc's `bink/` folder to `/switch/halo/bink/` (approximately
+   650 MB). Without it, the game skips the movies. `bink/intro.bik` alone
+   (10 MB) gives the start's logos.
 
 | Item | Location on the SD card |
 | --- | --- |
 | Game data | `/switch/halo/maps` |
+| Movies | `/switch/halo/bink` |
 | Settings | `/switch/halo/config.toml` |
 | Saved games (`z:\` and `u:\`) | `/switch/halo/save` |
 | Log of the game | `/switch/halo/debug.txt` |
@@ -174,10 +179,21 @@ What is different on the Switch:
   game does not stop.
 - **Visibility tests.** The lens flares read the results of their visibility
   tests two frames late, so the CPU does not wait for the GPU.
+- **Movies.** The game's playback code (`bink_playback.c`) calls the Bink
+  SDK. On the Switch, `port/linux/src/bink_host.c` gives it those functions:
+  the host decodes the movie with FFmpeg (`host_bink.c`) and mixes its sound
+  into the game's. The other ports skip the movies (`bink_null.c`).
+
+## Licenses
+
+The Switch program contains FFmpeg (the Bink decoders,
+`port/switch/docker/build_ffmpeg.sh`), under the GNU LGPL 2.1. The builds of
+GitHub Actions include its license (`ffmpeg-COPYING.LGPLv2.1.txt`). The
+source of FFmpeg is at https://ffmpeg.org, and the script gives the version
+and the options of the build.
 
 ## Limits
 
-- Bink video is not available. The game skips the movies.
 - Internet play has no UPnP. To host a game on the internet, forward the
   port on the router.
 - The game cannot extract the game data from a disc image on the Switch.
