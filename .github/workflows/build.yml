@@ -124,6 +124,19 @@ jobs:
           path: build/switch/third_party
           key: switch-third-party-${{ hashFiles('tools/switch_build.py', 'tools/guest_build.py') }}
 
+      # FFmpeg for the movies, Bink only and under the LGPL
+      - uses: actions/cache@v4
+        id: ffmpeg
+        with:
+          path: /opt/halo-ffmpeg
+          key: switch-ffmpeg-${{ hashFiles('port/switch/docker/build_ffmpeg.sh') }}
+
+      - name: FFmpeg
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          apt-get install -y --no-install-recommends make xz-utils
+          sh port/switch/docker/build_ffmpeg.sh /opt/halo-ffmpeg
+
       - name: Debug
         run: python3 tools/ci_build.py switch debug
 

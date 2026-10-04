@@ -80,6 +80,12 @@ parser.add_argument(
     help="devkitPro with libnx and switch-mesa for `ninja switch` (default: DEVKITPRO; port/switch/docker)",
 )
 parser.add_argument(
+    "--switch-ffmpeg",
+    type=str,
+    help="FFmpeg for the Switch's movies (default: HALO_SWITCH_FFMPEG, or /opt/halo-ffmpeg; "
+    "port/switch/docker/build_ffmpeg.sh)",
+)
+parser.add_argument(
     "--switch-guest-cc",
     type=str,
     help="clang with the arm64_32 target for the Switch guest (default: clang)",
@@ -100,6 +106,7 @@ sln = SimpleNamespace(
     android_guest_cc=args.android_guest_cc,
     devkitpro=args.devkitpro,
     switch_guest_cc=args.switch_guest_cc,
+    switch_ffmpeg=args.switch_ffmpeg,
 )
 
 

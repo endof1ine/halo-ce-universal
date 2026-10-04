@@ -97,6 +97,11 @@ def main() -> int:
     # the text's fonts (port/assets/fonts), embedded in every build, whose
     # SIL Open Font License asks each copy to carry it
     shutil.copy2(ROOT / "port/assets/fonts/Overpass-OFL.txt", dist / "Overpass-OFL.txt")
+    if args.platform == "switch":
+        # the movies' FFmpeg (port/switch/docker/build_ffmpeg.sh), whose LGPL
+        # asks the same
+        ffmpeg = Path(os.environ.get("HALO_SWITCH_FFMPEG", "/opt/halo-ffmpeg"))
+        shutil.copy2(ffmpeg / "COPYING.LGPLv2.1", dist / "ffmpeg-COPYING.LGPLv2.1.txt")
     # the menus' XML parser (port/third_party/expat), in every build, whose
     # MIT license asks copies to carry its notice
     shutil.copy2(ROOT / "port/third_party/expat/COPYING", dist / "expat-COPYING.txt")

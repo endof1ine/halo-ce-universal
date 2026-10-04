@@ -20,4 +20,9 @@ RUN apt-get update \
 
 ENV PATH="/usr/lib/llvm-${LLVM_VERSION}/bin:${DEVKITPRO}/tools/bin:${DEVKITPRO}/devkitA64/bin:${PATH}"
 
+# FFmpeg for the game's movies, Bink only and under the LGPL
+# (port/switch/host/host_bink.c)
+COPY build_ffmpeg.sh /tmp/build_ffmpeg.sh
+RUN sh /tmp/build_ffmpeg.sh /opt/halo-ffmpeg && rm /tmp/build_ffmpeg.sh
+
 WORKDIR /src

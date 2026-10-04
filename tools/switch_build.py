@@ -105,13 +105,20 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
     ), config, [Path("port/android/host_imports.list")])
 
     n.build(outputs="switch_guest", rule="phony", inputs=guest.image)
-    _generate_host(n, devkitpro, guest.image, guest.host_import_table, getattr(sln, "port_release", False))
+    ffmpeg = Path(getattr(sln, "switch_ffmpeg", None) or os.environ.get("HALO_SWITCH_FFMPEG") or FFMPEG_DEFAULT)
+    if not (ffmpeg / "lib" / "libavcodec.a").is_file():
+        print(f"Switch build: no FFmpeg in {ffmpeg} for the movies (port/switch/docker/build_ffmpeg.sh); "
+              "the program will not link", file=sys.stderr)
+    _generate_host(n, devkitpro, guest.image, guest.host_import_table, getattr(sln, "port_release", False), ffmpeg)
     n.newline()
 
 
 # the host's code generation (as devkitPro's template's)
 HOST_ARCH = "-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE"
-HOST_LIBRARIES = ["EGL", "glapi", "drm_nouveau", "nx"]
+# (FFmpeg for the movies, host_bink.c: port/switch/docker/build_ffmpeg.sh's,
+# Bink only and under the LGPL, not devkitPro's, which is built with the GPL)
+HOST_LIBRARIES = ["avformat", "avcodec", "swscale", "swresample", "avutil", "EGL", "glapi", "drm_nouveau", "nx"]
+FFMPEG_DEFAULT = Path("/opt/halo-ffmpeg")
 TOML_DIR = Path("port/third_party/tomlc17")
 
 
@@ -123,7 +130,7 @@ def _version() -> str:
         return "0"
 
 
-def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path, release: bool) -> None:
+def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path, release: bool, ffmpeg: Path) -> None:
     """The libnx host (port/switch/host) and the program, build/switch/halo.nro."""
     host_dir = BUILD / "host"
     obj_dir = host_dir / "obj"
@@ -155,7 +162,8 @@ def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path, 
         HOST_ARCH, "-O2", "-g", "-Wall", "-Wno-unused-function", "-ffunction-sections", "-D__SWITCH__",
         *(["-DHALO_RELEASE"] if release else []),
         f"-I{PORT_DIR}/host", f"-I{include_dir}", "-Iport/android/include", f"-I{LINUX_DIR}/src", f"-I{TOML_DIR}",
-        f"-I{SDL_DIR}/include", f"-I{devkitpro}/libnx/include", f"-I{devkitpro}/portlibs/switch/include",
+        f"-I{SDL_DIR}/include", f"-I{ffmpeg}/include", f"-I{devkitpro}/libnx/include",
+        f"-I{devkitpro}/portlibs/switch/include",
     ])
     sources = sorted((PORT_DIR / "host").glob("*.c")) + [
         LINUX_DIR / "src" / "posix_files.c", LINUX_DIR / "src" / "posix_net.c", TOML_DIR / "tomlc17.c",
@@ -174,7 +182,7 @@ def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path, 
     n.rule(
         name="switch_host_link",
         command=(f"$switch_host_cxx -specs={devkitpro}/libnx/switch.specs -g {HOST_ARCH} -Wl,-Map,$out.map "
-                 f"-o $out @$out.rsp -L{devkitpro}/portlibs/switch/lib -L{devkitpro}/libnx/lib "
+                 f"-o $out @$out.rsp -L{ffmpeg}/lib -L{devkitpro}/portlibs/switch/lib -L{devkitpro}/libnx/lib "
                  + " ".join(f"-l{library}" for library in HOST_LIBRARIES)),
         description="SWITCH HOST LINK $out",
         rspfile="$out.rsp",
