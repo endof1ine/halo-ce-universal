@@ -512,8 +512,9 @@ static void packet_release(struct voice_packet *entry)
 }
 
 /* completes the head packet; called with the lock held, which the game's
-callback runs without */
-static void stream_complete_head(struct sdl_stream *stream, DWORD status, DWORD completed_size)
+callback runs without. TRUE if the callback ran: it can release any stream,
+this one too, so the caller must not touch the streams it had */
+static BOOL stream_complete_head(struct sdl_stream *stream, DWORD status, DWORD completed_size)
 {
 	struct voice_packet *entry = &stream->packets[stream->packet_head];
 	XMEDIAPACKET packet = entry->packet;
@@ -528,14 +529,17 @@ static void stream_complete_head(struct sdl_stream *stream, DWORD status, DWORD 
 		*packet.pdwStatus = status;
 	if (stream->callback)
 	{
+		LPFNXMEDIAOBJECTCALLBACK callback = stream->callback;
+		LPVOID context = stream->context;
+
 		pthread_mutex_unlock(&mixer_lock);
-		stream->callback(stream->context, packet.pContext, status);
+		callback(context, packet.pContext, status);
 		pthread_mutex_lock(&mixer_lock);
+		return TRUE;
 	}
-	else if (packet.hCompletionEvent)
-	{
+	if (packet.hCompletionEvent)
 		SetEvent(packet.hCompletionEvent);
-	}
+	return FALSE;
 }
 
 static void streams_complete_finished(void)
@@ -543,10 +547,18 @@ static void streams_complete_finished(void)
 	struct sdl_stream *stream;
 
 	pthread_mutex_lock(&mixer_lock);
-	for (stream = streams; stream; stream = stream->next)
+	stream = streams;
+	while (stream)
 	{
-		while (stream->packet_count && stream->packets[stream->packet_head].finished)
-			stream_complete_head(stream, XMEDIAPACKET_STATUS_SUCCESS, stream->packets[stream->packet_head].packet.dwMaxSize);
+		if (stream->packet_count && stream->packets[stream->packet_head].finished)
+		{
+			/* after a callback (which may release streams) start over */
+			if (stream_complete_head(stream, XMEDIAPACKET_STATUS_SUCCESS,
+				stream->packets[stream->packet_head].packet.dwMaxSize))
+				stream = streams;
+			continue;
+		}
+		stream = stream->next;
 	}
 	pthread_mutex_unlock(&mixer_lock);
 }
