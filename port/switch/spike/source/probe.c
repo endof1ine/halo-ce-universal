@@ -17,7 +17,9 @@ Android port needs, before any of the host is written:
 6. wait on and wake an address below 4 GB (futexes);
 7. which OpenGL ES and OpenGL versions and extensions mesa gives.
 
-It writes the results to sdmc:/switch/halo/probe.txt and shows them.
+It writes the results to sdmc:/switch/halo/probe.txt and shows them. Sent
+with nxlink -s (tools/switch_docker.sh nxlink), it also streams each line
+of the report to the computer as it goes.
 */
 
 #include <switch.h>
@@ -29,7 +31,10 @@ It writes the results to sdmc:/switch/halo/probe.txt and shows them.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #define WINDOW_BASE 0x80000000ull
 #define WINDOW_SIZE 0x08000000ull
@@ -46,6 +51,9 @@ It writes the results to sdmc:/switch/halo/probe.txt and shows them.
 static char report[64 * 1024];
 static size_t report_length;
 static int failures;
+/* the nxlink host's output stream, when nxlink -s started the probe; not
+stdout, which the console takes over at the end */
+static int nxlink_socket = -1;
 
 static void say(const char *format, ...)
 {
@@ -57,7 +65,15 @@ static void say(const char *format, ...)
 		int length = vsnprintf(report + report_length, sizeof(report) - report_length, format, arguments);
 
 		if (length > 0)
+		{
+			size_t sent = (size_t)length;
+
+			if (sent > sizeof(report) - report_length)
+				sent = sizeof(report) - report_length;
+			if (nxlink_socket >= 0)
+				send(nxlink_socket, report + report_length, sent, 0);
 			report_length += (size_t)length;
+		}
 		if (report_length > sizeof(report))
 			report_length = sizeof(report);
 	}
@@ -85,6 +101,43 @@ static void write_report(void)
 	}
 }
 
+/* ---------- the last crash */
+
+/* sends Atmosphère's newest crash report to the nxlink host, so a crash of
+the previous run can be read without taking the SD card out */
+static void send_last_crash_report(void)
+{
+	const char *folder = "sdmc:/atmosphere/crash_reports";
+	char newest[256] = "", path[512], buffer[4096];
+	struct dirent *entry;
+	DIR *directory;
+	FILE *file;
+	size_t length, total = 0;
+
+	if (nxlink_socket < 0 || !(directory = opendir(folder)))
+		return;
+	/* the names start with the time of the crash */
+	while ((entry = readdir(directory)))
+		if (strstr(entry->d_name, ".log") && strcmp(entry->d_name, newest) > 0)
+			snprintf(newest, sizeof(newest), "%s", entry->d_name);
+	closedir(directory);
+	if (!*newest)
+		return;
+	snprintf(path, sizeof(path), "%s/%s", folder, newest);
+	file = fopen(path, "rb");
+	if (!file)
+		return;
+	length = (size_t)snprintf(buffer, sizeof(buffer), "== newest crash report: %s\n", newest);
+	send(nxlink_socket, buffer, length, 0);
+	while (total < 64 * 1024 && (length = fread(buffer, 1, sizeof(buffer), file)) > 0)
+	{
+		send(nxlink_socket, buffer, length, 0);
+		total += length;
+	}
+	fclose(file);
+	send(nxlink_socket, "\n== end of crash report\n", 25, 0);
+}
+
 /* ---------- process and address space */
 
 static u64 info(u32 id)
@@ -104,6 +157,8 @@ struct region
 };
 
 static struct region regions[4];
+/* Atmosphère ends a process whose exception handler returns when this is off */
+static bool exception_handlers_enabled = true;
 
 static void probe_process(void)
 {
@@ -120,8 +175,21 @@ static void probe_process(void)
 	say("memory: total %lu MB, used %lu MB, free %lu MB\n", total >> 20, used >> 20, (total - used) >> 20);
 	say("own process handle: %s\n", envGetOwnProcessHandle() != INVALID_HANDLE ? "yes" : "NO");
 	say("nso: %s\n", envIsNso() ? "yes" : "no (nro)");
+	say("debugger attached: %s\n", info(InfoType_DebuggerAttached) ? "YES" : "no");
 	verdict("title takeover (application)", type == AppletType_Application,
 		type == AppletType_Application ? NULL : "start a game while holding R");
+	if (R_SUCCEEDED(setsysInitialize()))
+	{
+		u8 enabled = 0xff;
+		u64 size = 0;
+		Result result = setsysGetSettingsItemValue("atmosphere", "enable_user_exception_handlers", &enabled,
+			sizeof(enabled), &size);
+
+		say("atmosphere!enable_user_exception_handlers: %s (0x%x)\n",
+			R_FAILED(result) ? "not readable" : enabled ? "on" : "OFF", result);
+		exception_handlers_enabled = R_FAILED(result) || enabled;
+		setsysExit();
+	}
 
 	regions[0] = (struct region){"aslr", info(InfoType_AslrRegionAddress), info(InfoType_AslrRegionSize)};
 	regions[1] = (struct region){"heap", info(InfoType_HeapRegionAddress), info(InfoType_HeapRegionSize)};
@@ -343,38 +411,51 @@ static void probe_arena(void)
 
 /* ---------- code */
 
+/* code memory goes RW one way only (the state becomes "code data", which
+svcSetProcessMemoryPermission no longer changes): the loader fills the
+backing first, then maps it and makes it RX, as the system's loader does */
+static struct mapping code;
+
 static void probe_execute(void)
 {
 	/* mov w0, #0x2a ; ret */
-	static const u32 code[] = {0x52800540, 0xd65f03c0};
-	u64 page = IMAGE_BASE;
+	static const u32 instructions[] = {0x52800540, 0xd65f03c0};
+	u64 address = IMAGE_BASE + IMAGE_SIZE;
 	char detail[96];
 	Result result;
 	bool ok = false;
 
 	say("== code\n");
-	if (!image.mapped)
+	if (!range_unmapped(address, PAGE, detail, sizeof(detail)) || !(code.backing = aligned_alloc(PAGE, PAGE)))
 	{
-		verdict("run code in the guest image", false, "no image mapping");
+		verdict("run code mapped RX", false, "no room or heap");
 		return;
 	}
-	memcpy((void *)page, code, sizeof(code));
-	armDCacheFlush((void *)page, PAGE);
-	result = svcSetProcessMemoryPermission(envGetOwnProcessHandle(), page, PAGE, Perm_Rx);
+	memset(code.backing, 0, PAGE);
+	memcpy(code.backing, instructions, sizeof(instructions));
+	armDCacheFlush(code.backing, PAGE);
+	result = svcMapProcessCodeMemory(envGetOwnProcessHandle(), address, (u64)code.backing, PAGE);
+	if (R_SUCCEEDED(result))
+	{
+		code.address = address;
+		code.size = PAGE;
+		code.mapped = true;
+		result = svcSetProcessMemoryPermission(envGetOwnProcessHandle(), address, PAGE, Perm_Rx);
+	}
 	if (R_FAILED(result))
 	{
-		snprintf(detail, sizeof(detail), "svcSetProcessMemoryPermission(rx): 0x%x", result);
+		snprintf(detail, sizeof(detail), "0x%x", result);
 	}
 	else
 	{
 		int value;
 
-		armICacheInvalidate((void *)page, PAGE);
-		value = ((int (*)(void))page)();
+		armICacheInvalidate((void *)address, PAGE);
+		value = ((int (*)(void))address)();
 		ok = value == 42;
 		snprintf(detail, sizeof(detail), "returned %d", value);
 	}
-	verdict("run code in the guest image", ok, detail);
+	verdict("run code filled before the mapping, then RX", ok, detail);
 }
 
 /* ---------- write tracking */
@@ -386,10 +467,14 @@ static atomic_int watch_faults;
 static atomic_int watch_unexpected;
 static atomic_int watch_in_handler;
 static atomic_int watch_overlapped;
+static atomic_int watch_reported;
 static u64 watch_fault_ticks;
 
 u8 __nx_exception_stack[0x8000] __attribute__((aligned(16)));
 u64 __nx_exception_stack_size = sizeof(__nx_exception_stack);
+/* libnx gives the exception to the debugger instead of the handler when
+one is attached; the probe reports whether one is (probe_process) */
+u32 __nx_exception_ignoredebug = 1;
 
 void __libnx_exception_handler(ThreadExceptionDump *context)
 {
@@ -399,11 +484,19 @@ void __libnx_exception_handler(ThreadExceptionDump *context)
 	second one here at once would share libnx's single dump and stack */
 	if (atomic_fetch_add(&watch_in_handler, 1))
 		atomic_fetch_add(&watch_overlapped, 1);
+	if (nxlink_socket >= 0 && atomic_fetch_add(&watch_reported, 1) < 4)
+	{
+		char line[128];
+		int length = snprintf(line, sizeof(line), "  (handler: desc 0x%x, far %lx, pc %lx)\n",
+			context->error_desc, context->far.x, context->pc.x);
+
+		send(nxlink_socket, line, (size_t)length, 0);
+	}
 	if (window.mapped && address >= WINDOW_BASE && address < WINDOW_BASE + WINDOW_SIZE)
 	{
 		u64 tick = armGetSystemTick();
 
-		svcSetProcessMemoryPermission(envGetOwnProcessHandle(), address & ~(PAGE - 1), PAGE, Perm_Rw);
+		svcSetMemoryPermission((void *)(address & ~(PAGE - 1)), PAGE, Perm_Rw);
 		watch_fault_ticks += armGetSystemTick() - tick;
 		atomic_fetch_add(&watch_faults, 1);
 	}
@@ -416,9 +509,11 @@ void __libnx_exception_handler(ThreadExceptionDump *context)
 	atomic_fetch_sub(&watch_in_handler, 1);
 }
 
+/* the window is "code data" once RW: svcSetMemoryPermission moves it between
+none, R and RW */
 static Result protect_pages(u64 base, int count)
 {
-	return svcSetProcessMemoryPermission(envGetOwnProcessHandle(), base, (u64)count * PAGE, Perm_R);
+	return svcSetMemoryPermission((void *)base, (u64)count * PAGE, Perm_R);
 }
 
 static void write_pages(u64 base, int count, u32 value)
@@ -450,6 +545,24 @@ static void probe_write_tracking(void)
 	u64 tick;
 
 	say("== write tracking\n");
+	if (!exception_handlers_enabled)
+	{
+		verdict("write tracking by faults", false, "skipped: user exception handlers are off in Atmosphère");
+		return;
+	}
+	write_report();
+	{
+		/* a read of an unmapped page: the handler skips the load */
+		volatile u32 *unmapped = (volatile u32 *)0x1000;
+
+		(void)*unmapped;
+		verdict("user exception handler reached (read of an unmapped page)",
+			atomic_load(&watch_unexpected) == 1, NULL);
+		if (atomic_load(&watch_unexpected) != 1)
+			return;
+		atomic_store(&watch_unexpected, 0);
+	}
+	write_report();
 	if (!window.mapped)
 	{
 		verdict("catch writes to read-only pages", false, "no window mapping");
@@ -458,9 +571,17 @@ static void probe_write_tracking(void)
 	result = protect_pages(WINDOW_BASE, WATCH_PAGES);
 	if (R_FAILED(result))
 	{
-		snprintf(detail, sizeof(detail), "svcSetProcessMemoryPermission(r): 0x%x", result);
+		snprintf(detail, sizeof(detail), "svcSetMemoryPermission(r): 0x%x", result);
 		verdict("catch writes to read-only pages", false, detail);
 		return;
+	}
+	{
+		/* none and back, for guard pages and released window pages */
+		Result none = svcSetMemoryPermission((void *)(WINDOW_BASE + 0x02000000ull), PAGE, Perm_None);
+		Result back = svcSetMemoryPermission((void *)(WINDOW_BASE + 0x02000000ull), PAGE, Perm_Rw);
+
+		snprintf(detail, sizeof(detail), "none 0x%x, rw 0x%x", none, back);
+		verdict("window page to no access and back", R_SUCCEEDED(none) && R_SUCCEEDED(back), detail);
 	}
 	write_pages(WINDOW_BASE, WATCH_PAGES, 1);
 	snprintf(detail, sizeof(detail), "%d of %d writes caught, %d other faults", atomic_load(&watch_faults),
@@ -500,6 +621,46 @@ static void probe_write_tracking(void)
 static u64 thread_stack_pointer;
 static u64 thread_tpidr_ok;
 
+/* u64 call_on_stack(u64 (*function)(void *), void *argument, void *stack_top):
+calls the function with its stack at stack_top, as the host will call guest
+code, whose stack addresses must fit 32 bits */
+u64 call_on_stack(u64 (*function)(void *), void *argument, void *stack_top);
+__asm__(
+	".text\n"
+	".global call_on_stack\n"
+	".type call_on_stack, %function\n"
+	"call_on_stack:\n"
+	"	stp x29, x30, [sp, #-16]!\n"
+	"	mov x29, sp\n"
+	"	mov x3, sp\n"
+	"	and x2, x2, #~15\n"
+	"	mov sp, x2\n"
+	"	str x3, [sp, #-16]!\n"
+	"	mov x3, x0\n"
+	"	mov x0, x1\n"
+	"	blr x3\n"
+	"	ldr x3, [sp], #16\n"
+	"	mov sp, x3\n"
+	"	ldp x29, x30, [sp], #16\n"
+	"	ret\n");
+
+static u64 on_low_stack(void *argument)
+{
+	char text[64];
+	u64 sp;
+
+	__asm__ volatile("mov %0, sp" : "=r"(sp));
+	/* newlib and a system call on the low stack, as a guest's host calls do */
+	snprintf(text, sizeof(text), "%s %lx", (const char *)argument, sp);
+	svcSleepThread(1000);
+	return strlen(text) ? sp : 0;
+}
+
+static void switch_thread(void *argument)
+{
+	thread_stack_pointer = call_on_stack(on_low_stack, "sp", argument);
+}
+
 static inline u64 read_tpidr(void)
 {
 	u64 value;
@@ -511,15 +672,6 @@ static inline u64 read_tpidr(void)
 static inline void write_tpidr(u64 value)
 {
 	__asm__ volatile("msr tpidr_el0, %0" : : "r"(value));
-}
-
-static void stack_thread(void *argument)
-{
-	u64 sp;
-
-	(void)argument;
-	__asm__ volatile("mov %0, sp" : "=r"(sp));
-	thread_stack_pointer = sp;
 }
 
 static void tpidr_thread(void *argument)
@@ -550,11 +702,14 @@ static void probe_threads(void)
 	say("== threads\n");
 	if (!chunk.mapped)
 	{
-		verdict("thread stack below 4 GB", false, "no arena chunk");
+		verdict("thread on a stack below 4 GB", false, "no arena chunk");
 	}
 	else
 	{
-		result = threadCreate(&thread, stack_thread, NULL, (void *)chunk.address, CHUNK_SIZE / 2, 0x2c, -2);
+		void *top = (void *)(chunk.address + CHUNK_SIZE);
+
+		thread_stack_pointer = 0;
+		result = threadCreate(&thread, switch_thread, top, NULL, 0x10000, 0x2c, -2);
 		if (R_SUCCEEDED(result))
 			result = threadStart(&thread);
 		if (R_SUCCEEDED(result))
@@ -563,9 +718,9 @@ static void probe_threads(void)
 			threadClose(&thread);
 		}
 		snprintf(detail, sizeof(detail), "result 0x%x, sp %lx", result, thread_stack_pointer);
-		verdict("thread stack below 4 GB (threadCreate with stack_mem)",
+		verdict("thread on a stack below 4 GB (stack switch)",
 			R_SUCCEEDED(result) && thread_stack_pointer > chunk.address &&
-				thread_stack_pointer <= chunk.address + CHUNK_SIZE,
+				thread_stack_pointer < chunk.address + CHUNK_SIZE,
 			detail);
 	}
 
@@ -775,6 +930,9 @@ int main(int argc, char **argv)
 
 	(void)argc;
 	(void)argv;
+	if (R_SUCCEEDED(socketInitializeDefault()))
+		nxlink_socket = nxlinkConnectToHost(false, false);
+	send_last_crash_report();
 	say("Halo Switch probe, %s %s\n", __DATE__, __TIME__);
 	probe_process();
 	probe_low_map();
@@ -792,12 +950,20 @@ int main(int argc, char **argv)
 	probe_futex();
 	write_report();
 	probe_graphics();
+	unmap(&code, "code page");
 	unmap(&chunk, "arena chunk");
 	unmap(&custom_edition, "Custom Edition range");
 	unmap(&image, "image");
 	unmap(&window, "window");
 	say("== %d failure%s\n", failures, failures == 1 ? "" : "s");
 	write_report();
+	if (nxlink_socket >= 0)
+	{
+		/* ends nxlink -s on the computer */
+		close(nxlink_socket);
+		nxlink_socket = -1;
+	}
+	socketExit();
 
 	consoleInit(NULL);
 	padConfigureInput(1, HidNpadStyleSet_NpadStandard);
