@@ -98,7 +98,20 @@ static void screen_mode_choose(long *width, float scale[2])
 	if (*width > 1600)
 		*width = 1600;
 	*width &= ~1L;
-	scale[0] = scale[1] = 1.0f;
+	/* display.render_scale, or the app's (HALO_RENDER_SCALE): the screen's
+	pixels for each of the 480 lines, 1 (the Xbox's) to 3 */
+	{
+		double render_scale = config_real("display.render_scale");
+		const char *app_scale = getenv("HALO_RENDER_SCALE");
+
+		if (render_scale <= 0.0 && app_scale)
+			render_scale = atof(app_scale);
+		if (render_scale < 1.0)
+			render_scale = 1.0;
+		if (render_scale > 3.0)
+			render_scale = 3.0;
+		scale[0] = scale[1] = (float)render_scale;
+	}
 #else
 	long display_width, display_height;
 
