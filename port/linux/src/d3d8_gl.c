@@ -3937,10 +3937,8 @@ static GLenum primitive_mode(D3DPRIMITIVETYPE type)
 }
 
 /* quads become two triangles each */
-static WORD *quad_indices(const WORD *indices, unsigned long count, unsigned long *out_count)
+static void quad_indices_fill(WORD *result, const WORD *indices, unsigned long quads)
 {
-	unsigned long quads = count / 4;
-	WORD *result = malloc(quads * 6 * sizeof(WORD) + 2);
 	unsigned long quad;
 
 	for (quad = 0; quad < quads; quad++)
@@ -3957,8 +3955,86 @@ static WORD *quad_indices(const WORD *indices, unsigned long count, unsigned lon
 		result[quad * 6 + 4] = v2;
 		result[quad * 6 + 5] = v3;
 	}
-	*out_count = quads * 6;
+}
+
+static WORD *quad_indices(const WORD *indices, unsigned long count, unsigned long *out_count)
+{
+	WORD *result = malloc(count / 4 * 6 * sizeof(WORD) + 2);
+
+	quad_indices_fill(result, indices, count / 4);
+	*out_count = count / 4 * 6;
 	return result;
+}
+
+#ifdef HALO_SWITCH
+/* an indexed quad list's triangles, in memory kept from draw to draw (the
+draws are on the one thread) */
+static const WORD *quad_indices_reused(const WORD *indices, unsigned long count, unsigned long *out_count)
+{
+	static WORD *held;
+	static unsigned long held_count;
+	unsigned long needed = count / 4 * 6;
+
+	if (needed > held_count)
+	{
+		WORD *grown = realloc(held, needed * sizeof(WORD) + 2);
+
+		if (!grown)
+		{
+			*out_count = 0;
+			return held;
+		}
+		held = grown;
+		held_count = needed;
+	}
+	quad_indices_fill(held, indices, count / 4);
+	*out_count = needed;
+	return held;
+}
+#endif
+
+/* a quad list without indices. On the Switch its triangles, the same every
+draw, stay in an index buffer of their own, made once, instead of being
+made and streamed each draw */
+static void quad_list_draw(unsigned long vertex_count)
+{
+	unsigned long count;
+	WORD *indices;
+#ifdef HALO_SWITCH
+	static GLuint buffer;
+	static unsigned long quads_held;
+	unsigned long quads = vertex_count / 4;
+
+	/* (16-bit indices reach 16384 quads) */
+	if (quads <= 65536 / 4)
+	{
+		if (!buffer)
+			glGenBuffers(1, &buffer);
+		state_element_array_buffer(buffer);
+		if (quads > quads_held)
+		{
+			unsigned long grown = quads_held ? quads_held : 1024;
+
+			while (grown < quads)
+				grown *= 2;
+			if (grown > 65536 / 4)
+				grown = 65536 / 4;
+			indices = malloc(grown * 6 * sizeof(WORD));
+			if (!indices)
+				return;
+			quad_indices_fill(indices, NULL, grown);
+			glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)(grown * 6 * sizeof(WORD)), indices, GL_STATIC_DRAW);
+			free(indices);
+			quads_held = grown;
+		}
+		glDrawElements(GL_TRIANGLES, (GLsizei)(quads * 6), GL_UNSIGNED_SHORT, NULL);
+		return;
+	}
+#endif
+	indices = quad_indices(NULL, vertex_count, &count);
+	glDrawElements(GL_TRIANGLES, (GLsizei)count, GL_UNSIGNED_SHORT,
+		(const void *)index_upload(indices, count * sizeof(WORD)));
+	free(indices);
 }
 
 void WINAPI D3DDevice_SetStreamSource(UINT stream_number, D3DVertexBuffer *stream_data, UINT stride)
@@ -3982,18 +4058,9 @@ void WINAPI D3DDevice_DrawVertices(D3DPRIMITIVETYPE primitive_type, UINT start_v
 	trace_draw("draw", primitive_type, vertex_count, NULL);
 	setup_streams(start_vertex, vertex_count);
 	if (primitive_type == D3DPT_QUADLIST)
-	{
-		unsigned long count;
-		WORD *indices = quad_indices(NULL, vertex_count, &count);
-
-		glDrawElements(GL_TRIANGLES, (GLsizei)count, GL_UNSIGNED_SHORT,
-			(const void *)index_upload(indices, count * sizeof(WORD)));
-		free(indices);
-	}
+		quad_list_draw(vertex_count);
 	else
-	{
 		glDrawArrays(primitive_mode(primitive_type), 0, (GLsizei)vertex_count);
-	}
 	gl_check_errors("draw");
 }
 
@@ -4029,8 +4096,14 @@ void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT 
 	count = vertex_count;
 	if (primitive_type == D3DPT_QUADLIST)
 	{
+#ifdef HALO_SWITCH
+		source = quad_indices_reused(index_data, vertex_count, &count);
+		if (!count)
+			return;
+#else
 		indices = quad_indices(index_data, vertex_count, &count);
 		source = indices;
+#endif
 	}
 #ifdef HALO_GUEST
 	if (!xgpu_capabilities.base_vertex)
@@ -4093,18 +4166,9 @@ void WINAPI D3DDevice_End(void)
 			offset + index * 4 * sizeof(float));
 	}
 	if (type == D3DPT_QUADLIST)
-	{
-		unsigned long index_count;
-		WORD *indices = quad_indices(NULL, count, &index_count);
-
-		glDrawElements(GL_TRIANGLES, (GLsizei)index_count, GL_UNSIGNED_SHORT,
-			(const void *)index_upload(indices, index_count * sizeof(WORD)));
-		free(indices);
-	}
+		quad_list_draw(count);
 	else
-	{
 		glDrawArrays(primitive_mode(type), 0, (GLsizei)count);
-	}
 	gl_check_errors("immediate draw");
 }
 
