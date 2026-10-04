@@ -305,3 +305,7 @@
 #define __NR_cachestat		451
 #define __NR_fchmodat2		452
 
+/* guest-only: __guest_syscall returns a 32-bit long, which cannot hold an
+offset of 2 GB or more; with this, musl's lseek passes the offset in two
+halves and gets the result through memory (host_syscall.c) */
+#define __NR__llseek	65536

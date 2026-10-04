@@ -180,6 +180,21 @@ static long guest_futex(uint64_t address, int operation, uint32_t value, uint64_
 		GUEST(void *, address2), value3));
 }
 
+/* ---------- files */
+
+/* musl's _llseek: the halves of the offset, and the 64-bit result through
+guest memory, as the guest's syscall() returns only 32 bits */
+static long guest_llseek(int descriptor, long long high, long long low, uint64_t result, int whence)
+{
+	off_t offset = (off_t)(((uint64_t)(uint32_t)high << 32) | (uint32_t)low);
+	off_t position = lseek(descriptor, offset, whence);
+
+	if (position < 0)
+		return -errno;
+	*GUEST(int64_t *, result) = (int64_t)position;
+	return 0;
+}
+
 /* ---------- dispatch */
 
 long long host_syscall(long long number, long long a, long long b, long long c,
@@ -250,6 +265,8 @@ long long host_syscall(long long number, long long a, long long b, long long c,
 			timespec_out((uint64_t)d, &remaining);
 		return -result;
 	}
+	case 65536: /* the guest's _llseek (bits/syscall.h.in) */
+		return guest_llseek((int)a, b, c, (uint64_t)d, (int)e);
 	case SYS_futex:
 		return guest_futex((uint64_t)a, (int)b, (uint32_t)c, (uint64_t)d, (uint64_t)e, (uint32_t)f);
 	case SYS_ppoll:
