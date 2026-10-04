@@ -197,9 +197,7 @@ What is different on the Switch:
   `/switch/halo/save/shader_warm`, and compiles them again when the map
   loads, at the CPU's boosted clock, for at most 8 seconds: the rest at
   their first use. (Other threads cannot compile them: switch-mesa's EGL
-  gives their OpenGL contexts none of the game's objects, so a program they
-  make is none to the game's. `display.async_shaders` checks this at the
-  start, and stays off.)
+  gives their OpenGL contexts none of the game's objects.)
 - **Visibility tests.** The lens flares read the results of their visibility
   tests two frames late, so the CPU does not wait for the GPU.
 - **Movies.** The game's playback code (`bink_playback.c`) calls the Bink

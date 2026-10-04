@@ -60,7 +60,6 @@ this list to generate the guest's entry points */
 	X(glPixelStorei) \
 	X(glReadPixels) \
 	X(glFinish) \
-	X(glIsShader) \
 	X(glFlush) \
 	X(glGenTextures) \
 	X(glDeleteTextures) \
@@ -172,7 +171,6 @@ this list to generate the guest's entry points */
 	X(glPixelStorei) \
 	X(glReadPixels) \
 	X(glFinish) \
-	X(glIsShader) \
 	X(glFlush) \
 	X(glClipControl) \
 	X(glGenTextures) \
@@ -285,7 +283,6 @@ pointers, sees the declarations without these aliases */
 #define glPixelStorei halo_glPixelStorei
 #define glReadPixels halo_glReadPixels
 #define glFinish halo_glFinish
-#define glIsShader halo_glIsShader
 #define glFlush halo_glFlush
 #define glGenTextures halo_glGenTextures
 #define glDeleteTextures halo_glDeleteTextures
@@ -395,7 +392,6 @@ pointers, sees the declarations without these aliases */
 #define glPixelStorei halo_glPixelStorei
 #define glReadPixels halo_glReadPixels
 #define glFinish halo_glFinish
-#define glIsShader halo_glIsShader
 #define glFlush halo_glFlush
 #define glClipControl halo_glClipControl
 #define glGenTextures halo_glGenTextures

@@ -568,25 +568,6 @@ static Uint64 frame_interval_ns(void)
 }
 
 #endif
-void *platform_gl_create_shared_context(void)
-{
-	SDL_GLContext context;
-
-	if (!platform_window || !platform_gl_context)
-		return NULL;
-	SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
-	context = SDL_GL_CreateContext(platform_window);
-	SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 0);
-	/* (SDL makes a new context current) */
-	SDL_GL_MakeCurrent(platform_window, platform_gl_context);
-	return context;
-}
-
-BOOL platform_gl_make_shared_current(void *context)
-{
-	return SDL_GL_MakeCurrent(platform_window, (SDL_GLContext)context) ? TRUE : FALSE;
-}
-
 void platform_video_swap(void)
 {
 #ifndef HALO_GUEST

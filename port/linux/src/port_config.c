@@ -386,16 +386,11 @@ static const struct config_setting config_settings[] =
 	{ "display.movies", _config_boolean, "true", "HALO_MOVIES", _environment_value, _platform_switch,
 		"Play the game's movies (the intro, the attract mode, the credits); off\n"
 		"skips them, as when their files are missing." },
-	{ "display.dynamic_resolution", _config_boolean, "true", "HALO_DYNAMIC_RESOLUTION", _environment_value,
+	{ "display.dynamic_resolution", _config_boolean, "false", "HALO_DYNAMIC_RESOLUTION", _environment_value,
 		_platform_switch,
 		"Lower the resolution a step while the GPU holds the frame rate back, and\n"
 		"raise it again when it can (between the Xbox's 480 lines and the render\n"
 		"scale set)." },
-	{ "display.async_shaders", _config_boolean, "false", "HALO_ASYNC_SHADERS", _environment_value, _platform_switch,
-		"Compile shaders on other cores: an effect seen for the first time appears\n"
-		"a frame or two late instead of stopping the game while it compiles.\n"
-		"Off by itself where the threads' contexts cannot share the game's objects\n"
-		"(switch-mesa's EGL)." },
 	{ "input.gyro_aim_assist", _config_boolean, "true", "HALO_GYRO_AIM_ASSIST", _environment_value,
 		_platform_switch,
 		"Magnetism while aiming with the gyro, as with the stick: the view slowed\n"

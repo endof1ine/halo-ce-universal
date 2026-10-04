@@ -1096,10 +1096,6 @@ static BOOL bind_targets(BOOL *has_depth)
 
 /* ---------- device creation */
 
-#ifdef HALO_SWITCH
-static void async_shaders_start(void);
-#endif
-
 #ifdef HALO_GUEST
 /* a buffer of the stream ring: on the Switch mapped for good where it can be
 (host_gl_buffer_persist), else (and elsewhere) one that can be orphaned */
@@ -1254,7 +1250,6 @@ static void gl_initialize(void)
 	xgpu_gl_state_invalidate();
 	device.gl_ready = TRUE;
 #ifdef HALO_SWITCH
-	async_shaders_start();
 	dynamic_resolution_start();
 #endif
 }
@@ -2439,293 +2434,6 @@ static void shader_warm_record(struct vertex_shader_object *program, BOOL immedi
 	fflush(shader_warm_file);
 }
 
-#ifdef HALO_SWITCH
-/* ---------- compiling shaders on other cores
-
-Mesa compiles and links a program on the CPU (some 40 ms of it on the
-Switch), which the draw that first needs it would wait for. Here worker
-threads with OpenGL contexts of their own, sharing the game's programs,
-compile and link them instead, on the cores the main thread leaves: a draw
-whose program is not linked yet is skipped (its effect appears a frame or
-two late) and its program goes to the front of the queue; the warm-up's
-programs (xgpu_shader_warm_map) go to the back. The main thread then gives
-the linked program its uniforms. The workers only compile and link, which
-in mesa is the CPU's work: nouveau's GPU submissions are not to be made
-from two threads at once. display.async_shaders = false compiles on the
-main thread, as the other ports do. */
-
-#define ASYNC_WORKERS 2
-#define ASYNC_BUCKETS 4096
-
-enum
-{
-	_async_unqueued,
-	_async_urgent,
-	_async_background,
-};
-
-struct async_program
-{
-	struct async_program *next;
-	/* the queue it is in (async_shaders.queues[queue]) */
-	struct async_program *previous_job, *next_job;
-	int queue;
-	unsigned long hash;
-	struct vertex_shader_object *vertex_program;
-	unsigned long packed_mask;
-	BOOL immediate;
-	struct nv2a_pixel_shader_key key;
-	char *vertex_source;
-	char *fragment_source;
-	/* the worker's: the program, and then 1 linked or -1 not (release) */
-	GLuint program;
-	int done;
-	/* the main thread's, once done */
-	struct program_entry *entry;
-	BOOL failed;
-};
-
-static struct
-{
-	BOOL enabled;
-	pthread_mutex_t lock;
-	pthread_cond_t wake;
-	struct async_program *first[3], *last[3];
-	struct async_program *buckets[ASYNC_BUCKETS];
-	unsigned long draws_waited, compiled, queued_frames;
-	/* the workers that could use their context, and those that could not */
-	int ready, failed;
-	/* a shader a worker made, which the main thread must see: switch-mesa's
-	EGL makes the contexts without sharing their objects (a program linked
-	on a worker is then no program to the game's, and draws nothing) */
-	GLuint probe;
-} async_shaders = { FALSE, PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER };
-
-/* (with the lock) */
-static void async_unlink(struct async_program *job)
-{
-	if (job->previous_job)
-		job->previous_job->next_job = job->next_job;
-	else
-		async_shaders.first[job->queue] = job->next_job;
-	if (job->next_job)
-		job->next_job->previous_job = job->previous_job;
-	else
-		async_shaders.last[job->queue] = job->previous_job;
-	job->previous_job = job->next_job = NULL;
-	job->queue = _async_unqueued;
-}
-
-/* (with the lock) */
-static void async_append(struct async_program *job, int queue)
-{
-	job->queue = queue;
-	job->next_job = NULL;
-	job->previous_job = async_shaders.last[queue];
-	if (async_shaders.last[queue])
-		async_shaders.last[queue]->next_job = job;
-	else
-		async_shaders.first[queue] = job;
-	async_shaders.last[queue] = job;
-}
-
-static void *async_worker(void *context)
-{
-	BOOL current = platform_gl_make_shared_current(context);
-
-	pthread_mutex_lock(&async_shaders.lock);
-	if (current && !async_shaders.probe)
-	{
-		async_shaders.probe = glCreateShader(GL_VERTEX_SHADER);
-		glFinish();
-	}
-	if (current)
-		async_shaders.ready++;
-	else
-		async_shaders.failed++;
-	pthread_cond_broadcast(&async_shaders.wake);
-	pthread_mutex_unlock(&async_shaders.lock);
-	if (!current)
-	{
-		platform_log("shaders: a compiling thread cannot use its OpenGL context");
-		return NULL;
-	}
-	for (;;)
-	{
-		struct async_program *job;
-		GLuint vertex_shader, fragment_shader, program = 0;
-		GLint status = 0;
-
-		pthread_mutex_lock(&async_shaders.lock);
-		while (!async_shaders.first[_async_urgent] && !async_shaders.first[_async_background])
-			pthread_cond_wait(&async_shaders.wake, &async_shaders.lock);
-		job = async_shaders.first[_async_urgent] ? async_shaders.first[_async_urgent] :
-			async_shaders.first[_async_background];
-		async_unlink(job);
-		pthread_mutex_unlock(&async_shaders.lock);
-
-		vertex_shader = compile_shader(GL_VERTEX_SHADER, job->vertex_source, "vertex");
-		fragment_shader = compile_shader(GL_FRAGMENT_SHADER, job->fragment_source, "pixel");
-		free(job->vertex_source);
-		free(job->fragment_source);
-		job->vertex_source = job->fragment_source = NULL;
-		if (vertex_shader && fragment_shader)
-		{
-			program = glCreateProgram();
-			glAttachShader(program, vertex_shader);
-			glAttachShader(program, fragment_shader);
-			glLinkProgram(program);
-			glGetProgramiv(program, GL_LINK_STATUS, &status);
-			if (!status)
-			{
-				char log[4096];
-
-				glGetProgramInfoLog(program, sizeof(log), NULL, log);
-				platform_log("cannot link a shader program: %s", log);
-				glDeleteProgram(program);
-				program = 0;
-			}
-		}
-		/* (attached shaders go with their program) */
-		if (vertex_shader)
-			glDeleteShader(vertex_shader);
-		if (fragment_shader)
-			glDeleteShader(fragment_shader);
-		job->program = program;
-		__atomic_store_n(&job->done, program ? 1 : -1, __ATOMIC_RELEASE);
-	}
-	return NULL;
-}
-
-static void async_shaders_start(void)
-{
-	int index, started = 0;
-
-	if (!config_boolean("display.async_shaders"))
-		return;
-	for (index = 0; index < ASYNC_WORKERS; index++)
-	{
-		void *context = platform_gl_create_shared_context();
-		pthread_t thread;
-
-		if (!context)
-			break;
-		if (pthread_create(&thread, NULL, async_worker, context) != 0)
-			break;
-		pthread_detach(thread);
-		started++;
-	}
-	/* on only with a thread that compiles: draws would wait forever */
-	pthread_mutex_lock(&async_shaders.lock);
-	while (async_shaders.ready + async_shaders.failed < started)
-		pthread_cond_wait(&async_shaders.wake, &async_shaders.lock);
-	async_shaders.enabled = async_shaders.ready > 0;
-	pthread_mutex_unlock(&async_shaders.lock);
-	if (async_shaders.enabled && !(async_shaders.probe && glIsShader(async_shaders.probe)))
-	{
-		/* (the threads stay, idle: they cannot be stopped) */
-		async_shaders.enabled = FALSE;
-		platform_log("shaders: the compiling threads' OpenGL contexts do not share the game's objects; "
-			"compiled on the game's thread");
-		return;
-	}
-	platform_log("shaders: %d compiling threads", async_shaders.ready);
-}
-
-/* the program of a draw, or NULL while it is compiled (or failed); a new one
-goes to the queue's front (urgent) or back. *created: it was new */
-static struct program_entry *async_program_get(struct vertex_shader_object *vertex_program, BOOL immediate,
-	unsigned long packed_mask, const struct nv2a_pixel_shader_key *unnormalized, BOOL urgent, BOOL *created)
-{
-	struct nv2a_pixel_shader_key key = *unnormalized;
-	struct async_program *job;
-	unsigned long hash;
-	int done;
-
-	*created = FALSE;
-	nv2a_pixel_shader_key_normalize(&key);
-	hash = hash_words(&key, sizeof(key)) ^ (vertex_program->id * 2654435761UL) ^ (packed_mask * 40503UL) ^
-		(immediate ? 0x9e3779b9UL : 0);
-	for (job = async_shaders.buckets[hash % ASYNC_BUCKETS]; job; job = job->next)
-	{
-		if (job->hash == hash && job->vertex_program == vertex_program && job->immediate == immediate &&
-			job->packed_mask == packed_mask && !memcmp(&job->key, &key, sizeof(key)))
-			break;
-	}
-	if (job)
-	{
-		if (job->entry)
-			return job->entry;
-		if (job->failed)
-			return NULL;
-		done = __atomic_load_n(&job->done, __ATOMIC_ACQUIRE);
-		if (!done)
-		{
-			/* a warm-up's program a draw now needs: to the front */
-			if (urgent && job->queue == _async_background)
-			{
-				pthread_mutex_lock(&async_shaders.lock);
-				if (job->queue == _async_background)
-				{
-					async_unlink(job);
-					async_append(job, _async_urgent);
-				}
-				pthread_mutex_unlock(&async_shaders.lock);
-			}
-			return NULL;
-		}
-		if (done < 0)
-		{
-			job->failed = TRUE;
-			return NULL;
-		}
-		job->entry = calloc(1, sizeof(*job->entry));
-		if (!job->entry)
-			return NULL;
-		job->entry->program = job->program;
-		memset(&job->entry->uniforms, 0xff, sizeof(job->entry->uniforms));
-		program_setup(job->entry);
-		async_shaders.compiled++;
-		return job->entry;
-	}
-	job = calloc(1, sizeof(*job));
-	if (!job || !vertex_program->instructions)
-	{
-		free(job);
-		return NULL;
-	}
-	job->hash = hash;
-	job->vertex_program = vertex_program;
-	job->packed_mask = packed_mask;
-	job->immediate = immediate;
-	job->key = key;
-	job->vertex_source = nv2a_vertex_shader_to_glsl(vertex_program->instructions, vertex_program->instruction_count,
-		immediate ? 0 : packed_mask);
-	job->fragment_source = nv2a_pixel_shader_to_glsl(&key);
-	job->next = async_shaders.buckets[hash % ASYNC_BUCKETS];
-	async_shaders.buckets[hash % ASYNC_BUCKETS] = job;
-	pthread_mutex_lock(&async_shaders.lock);
-	async_append(job, urgent ? _async_urgent : _async_background);
-	pthread_cond_signal(&async_shaders.wake);
-	pthread_mutex_unlock(&async_shaders.lock);
-	*created = TRUE;
-	return NULL;
-}
-
-/* now and then, what the compiling threads did */
-static void async_shaders_frame(void)
-{
-	if (!async_shaders.enabled || ++async_shaders.queued_frames < 600)
-		return;
-	if (async_shaders.draws_waited || async_shaders.compiled)
-		platform_log("shaders: %lu programs compiled in the background, %lu draws waited for theirs",
-			async_shaders.compiled, async_shaders.draws_waited);
-	async_shaders.queued_frames = 0;
-	async_shaders.compiled = 0;
-	async_shaders.draws_waited = 0;
-}
-
-#endif
 /* a draw of one point into a 1x1 target of its own, which makes the driver
 compile what it leaves for the first draw */
 static void shader_warm_draw(GLuint program)
@@ -2808,16 +2516,6 @@ void xgpu_shader_warm_map(const char *map)
 		if (!program)
 			continue;
 #ifdef HALO_SWITCH
-		if (async_shaders.enabled)
-		{
-			BOOL created;
-
-			async_program_get(program, record.immediate != 0, record.packed_mask, &record.key, FALSE, &created);
-			warmed += created;
-			continue;
-		}
-#endif
-#ifdef HALO_SWITCH
 		/* (at most SHADER_WARM_SECONDS of the loading, on the game's
 		thread: the rest at their first draws, the first recorded first) */
 		if (shader_warm_now_ns() - start > SHADER_WARM_SECONDS * 1000000000ULL)
@@ -2848,13 +2546,10 @@ void xgpu_shader_warm_map(const char *map)
 		xgpu_gl_state_invalidate();
 	}
 	clock_gettime(CLOCK_MONOTONIC, &time);
-	platform_log("shader warm-up: %lu of %lu programs of %s in %llu ms%s; %lu left for their first draws", warmed,
+	platform_log("shader warm-up: %lu of %lu programs of %s in %llu ms; %lu left for their first draws", warmed,
 		records, shader_warm_map,
 		((unsigned long long)time.tv_sec * 1000000000ULL + (unsigned long long)time.tv_nsec - start) / 1000000ULL,
-#ifdef HALO_SWITCH
-		async_shaders.enabled ? " (queued for the compiling threads)" :
-#endif
-		"", late);
+		late);
 }
 
 /* ---------- per-draw state */
@@ -3483,23 +3178,6 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	key.count_samples = device.visibility_test_active && xgpu_capabilities.atomic_counters;
 #endif
 
-#ifdef HALO_SWITCH
-	if (async_shaders.enabled)
-	{
-		unsigned long packed_mask = immediate ? 0 : device.vertex_shader->packed_mask;
-		BOOL created;
-
-		entry = async_program_get(program, immediate, packed_mask, &key, TRUE, &created);
-		if (created)
-			shader_warm_record(program, immediate, packed_mask, &key);
-		if (!entry)
-		{
-			async_shaders.draws_waited++;
-			return NULL;
-		}
-	}
-	else
-#endif
 	{
 		unsigned long linked = programs_linked;
 
@@ -4738,9 +4416,6 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		platform_video_swap();
 		gl_state_forget(_gl_state_framebuffer | _gl_state_masks);
 		xgpu_texture_cache_begin_frame();
-#ifdef HALO_SWITCH
-		async_shaders_frame();
-#endif
 #ifdef HALO_GUEST
 		if (xgpu_capabilities.atomic_counters)
 			visibility_stage_frame();
