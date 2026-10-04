@@ -683,8 +683,12 @@ static void texture_dump(GLenum target, const struct xgpu_texture_description *d
 }
 #endif
 
+/* (the Switch: a 2D or cube texture's levels made at its first upload with
+glTexStorage, all at once, and filled in place then and after; level by
+level glTexImage makes mesa allocate, and move, the texture as it grows,
+which was most of a cutscene's hitches. *allocated is the entry's) */
 static void upload(GLuint texture, GLenum target, const struct xgpu_texture_description *description,
-	const unsigned char *base, const D3DCOLOR *palette)
+	const unsigned char *base, const D3DCOLOR *palette, int *allocated)
 {
 	struct format_information information = format_information(description->format);
 	unsigned long face_count = description->cube_map ? 6 : 1;
@@ -692,7 +696,8 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 	unsigned long largest = description->width * description->height * description->depth;
 	BOOL decode_compressed = FALSE;
 	unsigned long *converted;
-	unsigned long face, level;
+	unsigned long face, level, levels = description->levels;
+	BOOL stored = FALSE;
 #ifdef HALO_SWITCH
 	struct native_format native;
 	BOOL kept = !description->compressed && native_format(information.kind, &native);
@@ -733,13 +738,38 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 	}
 #endif
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+#ifdef HALO_SWITCH
+	if (target != GL_TEXTURE_3D)
+	{
+		unsigned long largest_side = description->width > description->height ? description->width : description->height;
+		unsigned long possible = 1;
+
+		/* (no more levels than the size has) */
+		for (; largest_side > 1; largest_side >>= 1)
+			possible++;
+		if (levels > possible)
+			levels = possible;
+		if (!*allocated)
+		{
+			GLenum internal = kept ? native.internal :
+				description->compressed && !decode_compressed ? compressed_format(information.kind) : GL_RGBA8;
+
+			glTexStorage2D(target, (GLsizei)levels, internal, (GLsizei)description->width,
+				(GLsizei)description->height);
+			*allocated = 1;
+		}
+		stored = TRUE;
+	}
+#else
+	(void)allocated;
+#endif
 	glTexParameteri(target, GL_TEXTURE_BASE_LEVEL, 0);
-	glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, (GLint)description->levels - 1);
+	glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, (GLint)levels - 1);
 	for (face = 0; face < face_count; face++)
 	{
 		GLenum image_target = description->cube_map ? GL_TEXTURE_CUBE_MAP_POSITIVE_X + face : target;
 
-		for (level = 0; level < description->levels; level++)
+		for (level = 0; level < levels; level++)
 		{
 			const unsigned char *source = base + face * face_size + xgpu_texture_level_offset(description, level);
 			GLsizei width = (GLsizei)level_dimension(description->width, level);
@@ -750,7 +780,10 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 			if (kept)
 			{
 				decode_level_native(description, level, source, native.bytes, native_texels);
-				if (target == GL_TEXTURE_3D)
+				if (stored)
+					glTexSubImage2D(image_target, (GLint)level, 0, 0, width, height, native.format, native.type,
+						native_texels);
+				else if (target == GL_TEXTURE_3D)
 					glTexImage3D(image_target, (GLint)level, (GLint)native.internal, width, height, depth, 0,
 						native.format, native.type, native_texels);
 				else
@@ -761,7 +794,10 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 #endif
 			if (description->compressed && !decode_compressed)
 			{
-				if (target == GL_TEXTURE_3D)
+				if (stored)
+					glCompressedTexSubImage2D(image_target, (GLint)level, 0, 0, width, height,
+						compressed_format(information.kind), (GLsizei)level_bytes(description, level), source);
+				else if (target == GL_TEXTURE_3D)
 					glCompressedTexImage3D(image_target, (GLint)level, compressed_format(information.kind), width, height, depth, 0,
 						(GLsizei)level_bytes(description, level), source);
 				else
@@ -777,7 +813,9 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 				else
 #endif
 				decode_level(description, level, source, palette, converted);
-				if (target == GL_TEXTURE_3D)
+				if (stored)
+					glTexSubImage2D(image_target, (GLint)level, 0, 0, width, height, GL_BGRA, GL_UNSIGNED_BYTE, converted);
+				else if (target == GL_TEXTURE_3D)
 					glTexImage3D(image_target, (GLint)level, GL_RGBA8, width, height, depth, 0, GL_BGRA, GL_UNSIGNED_BYTE, converted);
 				else
 					glTexImage2D(image_target, (GLint)level, GL_RGBA8, width, height, 0, GL_BGRA, GL_UNSIGNED_BYTE, converted);
@@ -806,6 +844,8 @@ struct texture_entry
 	unsigned long last_used_frame;
 	/* the high-res HUD texture drawn in its place (hud_hires.h), or -1 */
 	long override;
+	/* its GL texture's levels made (upload) */
+	int allocated;
 };
 
 #define TEXTURE_BUCKET_COUNT 4096
@@ -994,7 +1034,8 @@ GLuint xgpu_texture_get(const DWORD *resource, const D3DCOLOR *palette, GLenum *
 					entry->description.height, entry->size, entry->generation,
 					ones * 100 / entry->size, zeros * 100 / entry->size);
 			}
-			upload(entry->texture, entry->target, &entry->description, (const unsigned char *)entry->address, palette);
+			upload(entry->texture, entry->target, &entry->description, (const unsigned char *)entry->address, palette,
+				&entry->allocated);
 		}
 	}
 	entry->last_used_frame = texture_frame;

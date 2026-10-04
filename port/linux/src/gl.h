@@ -69,6 +69,11 @@ this list to generate the guest's entry points */
 	X(glTexImage2D) \
 	X(glTexImage3D) \
 	X(glTexSubImage2D) \
+	X(glTexStorage2D) \
+	X(glTexStorage3D) \
+	X(glTexSubImage3D) \
+	X(glCompressedTexSubImage2D) \
+	X(glCompressedTexSubImage3D) \
 	X(glCompressedTexImage2D) \
 	X(glCompressedTexImage3D) \
 	X(glTexParameteri) \
@@ -289,6 +294,11 @@ pointers, sees the declarations without these aliases */
 #define glTexImage2D halo_glTexImage2D
 #define glTexImage3D halo_glTexImage3D
 #define glTexSubImage2D halo_glTexSubImage2D
+#define glTexStorage2D halo_glTexStorage2D
+#define glTexStorage3D halo_glTexStorage3D
+#define glTexSubImage3D halo_glTexSubImage3D
+#define glCompressedTexSubImage2D halo_glCompressedTexSubImage2D
+#define glCompressedTexSubImage3D halo_glCompressedTexSubImage3D
 #define glCompressedTexImage2D halo_glCompressedTexImage2D
 #define glCompressedTexImage3D halo_glCompressedTexImage3D
 #define glTexParameteri halo_glTexParameteri

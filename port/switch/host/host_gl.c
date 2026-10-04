@@ -33,6 +33,9 @@ static void (GL_APIENTRY *real_tex_sub_image_2d)(GLenum, GLint, GLint, GLint, GL
 	const void *);
 static void (GL_APIENTRY *real_compressed_tex_image_2d)(GLenum, GLint, GLenum, GLsizei, GLsizei, GLint, GLsizei,
 	const void *);
+static void (GL_APIENTRY *real_compressed_tex_sub_image_2d)(GLenum, GLint, GLint, GLint, GLsizei, GLsizei, GLenum,
+	GLsizei, const void *);
+static void (GL_APIENTRY *real_tex_storage_2d)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
 
 static uint64_t now_ns(void)
 {
@@ -87,6 +90,26 @@ static void GL_APIENTRY timed_compressed_tex_image_2d(GLenum target, GLint level
 	host_gl_timing.textures++;
 }
 
+static void GL_APIENTRY timed_compressed_tex_sub_image_2d(GLenum target, GLint level, GLint x, GLint y,
+	GLsizei width, GLsizei height, GLenum format, GLsizei size, const void *data)
+{
+	uint64_t start = now_ns();
+
+	real_compressed_tex_sub_image_2d(target, level, x, y, width, height, format, size, data);
+	host_gl_timing.texture_ns += now_ns() - start;
+	host_gl_timing.textures++;
+}
+
+/* (its time is the uploads', not counted as one) */
+static void GL_APIENTRY timed_tex_storage_2d(GLenum target, GLsizei levels, GLenum format, GLsizei width,
+	GLsizei height)
+{
+	uint64_t start = now_ns();
+
+	real_tex_storage_2d(target, levels, format, width, height);
+	host_gl_timing.texture_ns += now_ns() - start;
+}
+
 void *host_gl_resolve(const char *name)
 {
 	void *function = (void *)eglGetProcAddress(name);
@@ -104,6 +127,8 @@ void *host_gl_resolve(const char *name)
 	TIMED("glTexImage2D", real_tex_image_2d, timed_tex_image_2d)
 	TIMED("glTexSubImage2D", real_tex_sub_image_2d, timed_tex_sub_image_2d)
 	TIMED("glCompressedTexImage2D", real_compressed_tex_image_2d, timed_compressed_tex_image_2d)
+	TIMED("glCompressedTexSubImage2D", real_compressed_tex_sub_image_2d, timed_compressed_tex_sub_image_2d)
+	TIMED("glTexStorage2D", real_tex_storage_2d, timed_tex_storage_2d)
 #undef TIMED
 	return function;
 }
