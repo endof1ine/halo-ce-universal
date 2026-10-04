@@ -228,6 +228,15 @@ double host_config_real(const char *key, double missing)
 	return result;
 }
 
+/* ---------- the CPU's clock */
+
+/* while a map loads (sdl_platform.c's halo_map_loading), nothing is drawn:
+the CPU at its boosted clock, which lowers the GPU's */
+void host_cpu_boost(int boost)
+{
+	appletSetCpuBoostMode(boost ? ApmCpuBoostMode_FastLoad : ApmCpuBoostMode_Normal);
+}
+
 /* ---------- paths */
 
 void host_android_path(int which, char *buffer, uint32_t size)

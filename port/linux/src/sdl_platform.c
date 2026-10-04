@@ -912,6 +912,22 @@ void platform_request_quit(void)
 #endif
 }
 
+#ifdef HALO_SWITCH
+/* the host's (guest_host.h) */
+void host_cpu_boost(int boost);
+#endif
+
+/* a map loading (main.c's main_new_map), which draws nothing meanwhile: on
+the Switch at the CPU's boosted clock, which lowers the GPU's */
+void halo_map_loading(int loading)
+{
+#ifdef HALO_SWITCH
+	host_cpu_boost(loading);
+#else
+	(void)loading;
+#endif
+}
+
 void platform_scoreboard_scroll(int open, long *notches, long *pages)
 {
 	Uint64 now = SDL_GetTicks();

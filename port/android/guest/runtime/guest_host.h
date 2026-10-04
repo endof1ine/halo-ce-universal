@@ -125,4 +125,7 @@ the settings it uses itself again. */
 
 void host_config_changed(void);
 
+/* a map loading: the Switch's host boosts the CPU (and lowers the GPU) */
+void host_cpu_boost(int boost);
+
 #endif

@@ -101,6 +101,12 @@ void host_config_changed(void)
 {
 }
 
+/* (the Switch's host boosts the CPU while a map loads) */
+void host_cpu_boost(int boost)
+{
+	(void)boost;
+}
+
 static int directory_has_maps(const char *root)
 {
 	char path[600];

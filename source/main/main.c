@@ -1411,7 +1411,11 @@ short main_get_window_count(
 static void main_new_map(
 	struct game_options *options)
 {
+	/* port: the platform layer's (port/linux/src/sdl_platform.c) */
+	extern void halo_map_loading(int loading);
+
 	input_flush();
+	halo_map_loading(TRUE);
 	if (game_load(options))
 	{
 		game_initialize_for_new_map();
@@ -1420,6 +1424,7 @@ static void main_new_map(
 	{
 		error(_error_immediate, "game_load() failed.");
 	}
+	halo_map_loading(FALSE);
 
 	if (!errors_handle())
 	{
