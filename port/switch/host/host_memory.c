@@ -120,26 +120,37 @@ static uint32_t permission_of(int protection)
 	return Perm_None;
 }
 
-/* (each 2 MB chunk of the arena is a mapping of its own; a range is set
-chunk by chunk) */
+/* svcSetMemoryPermission takes only a range whose pages share one state
+and permission (the kernel's memory blocks): a range is set block by block,
+leaving those that already have the permission */
 static int set_permission(uint64_t address, uint64_t size, uint32_t permission)
 {
-	while (size)
+	uint64_t end = address + size;
+
+	while (address < end)
 	{
-		uint64_t piece = CHUNK - (address & (CHUNK - 1));
+		MemoryInfo block;
+		u32 page_info;
+		uint64_t piece;
 		Result result;
 
-		if (piece > size)
-			piece = size;
-		result = svcSetMemoryPermission((void *)address, piece, permission);
-		if (R_FAILED(result))
-		{
-			host_logf(HOST_LOG_ERROR, "svcSetMemoryPermission(%08llx, %llx, %u): 0x%x",
-				(unsigned long long)address, (unsigned long long)piece, permission, result);
+		if (R_FAILED(svcQueryMemory(&block, &page_info, address)))
 			return -1;
+		piece = block.addr + block.size - address;
+		if (piece > end - address)
+			piece = end - address;
+		if (block.perm != permission)
+		{
+			result = svcSetMemoryPermission((void *)address, piece, permission);
+			if (R_FAILED(result))
+			{
+				host_logf(HOST_LOG_ERROR, "svcSetMemoryPermission(%08llx, %llx, %u) in a block of type %u, "
+					"permission %u, attributes %u: 0x%x", (unsigned long long)address, (unsigned long long)piece,
+					permission, block.type, block.perm, block.attr, result);
+				return -1;
+			}
 		}
 		address += piece;
-		size -= piece;
 	}
 	return 0;
 }

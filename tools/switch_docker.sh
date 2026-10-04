@@ -50,7 +50,8 @@ ports=
 if [ "$1" = nxlink ]; then
 	shift
 	ports="-p 28771:28771"
-	set -- nxlink ${SWITCH_IP:+-a "$SWITCH_IP"} -s "$@"
+	# (line by line, for a log read as it comes)
+	set -- stdbuf -oL nxlink ${SWITCH_IP:+-a "$SWITCH_IP"} -s "$@"
 fi
 
 exec docker run --rm $tty $ports -v "$root:/src" -w /src "$image" "$@"

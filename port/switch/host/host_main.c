@@ -18,6 +18,7 @@ folder; the log of the game is debug.txt there, this file's host.log.
 #include "tomlc17.h"
 
 #include <arpa/inet.h>
+#include <dirent.h>
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -86,6 +87,40 @@ static void log_flush(void)
 	if (log_file)
 		fflush(log_file);
 	mutexUnlock(&log_lock);
+}
+
+/* Atmosphère's newest crash report, to the nxlink host: a crash of the
+last run, read without taking the SD card out */
+static void send_last_crash_report(void)
+{
+	const char *folder = "sdmc:/atmosphere/crash_reports";
+	char newest[256] = "", path[512], buffer[4096];
+	struct dirent *entry;
+	DIR *directory;
+	FILE *file;
+	size_t length, total = 0;
+
+	if (log_socket < 0 || !(directory = opendir(folder)))
+		return;
+	/* (the names start with the time of the crash) */
+	while ((entry = readdir(directory)))
+		if (strstr(entry->d_name, ".log") && strcmp(entry->d_name, newest) > 0)
+			snprintf(newest, sizeof(newest), "%s", entry->d_name);
+	closedir(directory);
+	if (!*newest)
+		return;
+	snprintf(path, sizeof(path), "%s/%s", folder, newest);
+	if (!(file = fopen(path, "rb")))
+		return;
+	length = (size_t)snprintf(buffer, sizeof(buffer), "== newest crash report: %s\n", newest);
+	send(log_socket, buffer, length, 0);
+	while (total < 32 * 1024 && (length = fread(buffer, 1, sizeof(buffer), file)) > 0)
+	{
+		send(log_socket, buffer, length, 0);
+		total += length;
+	}
+	fclose(file);
+	send(log_socket, "\n== end of crash report\n", 25, 0);
 }
 
 /* ---------- ending */
@@ -293,6 +328,7 @@ int main(int argc, char *argv[])
 	log_file = fopen(HOST_DATA_ROOT "/host.log", "w");
 	if (R_SUCCEEDED(socketInitialize(&socket_config)) && __nxlink_host.s_addr)
 		log_socket = nxlinkConnectToHost(false, false);
+	send_last_crash_report();
 	host_logf(HOST_LOG_INFO, "Halo for Switch starting");
 	host_syscall_initialize();
 	host_watch_start();
