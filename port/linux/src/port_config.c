@@ -383,6 +383,11 @@ static const struct config_setting config_settings[] =
 	{ "display.lock_30fps", _config_boolean, "false", "HALO_LOCK_30FPS", _environment_value, _platform_switch,
 		"30 frames a second with vsync, steadier than a rate that varies below\n"
 		"60, and lighter on the battery." },
+	{ "display.dynamic_resolution", _config_boolean, "true", "HALO_DYNAMIC_RESOLUTION", _environment_value,
+		_platform_switch,
+		"Lower the resolution a step while the GPU holds the frame rate back, and\n"
+		"raise it again when it can (between the Xbox's 480 lines and the render\n"
+		"scale set)." },
 	{ "display.async_shaders", _config_boolean, "true", "HALO_ASYNC_SHADERS", _environment_value, _platform_switch,
 		"Compile shaders on other cores: an effect seen for the first time appears\n"
 		"a frame or two late instead of stopping the game while it compiles." },

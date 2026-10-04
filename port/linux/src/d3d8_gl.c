@@ -84,6 +84,129 @@ static float screen_scale[2] = { 1.0f, 1.0f };
 static long ui_offset;
 #define UI_OFFSET ((GLint)ui_offset)
 
+#ifdef HALO_SWITCH
+/* ---------- dynamic resolution
+
+display.dynamic_resolution: the render scale goes down a step while the GPU
+is what keeps the frame rate below its target (busy for nearly all of each
+frame, timed with EXT_disjoint_timer_query), and back up once the GPU's time
+at the next step up (by its pixels) fits the target with room: down at most
+once a second, up once every three seconds, between 1 and the render scale
+set. A CPU-bound frame leaves the GPU idle part of the time, and keeps its
+scale. Each step's targets stay made (render_target_get), so the steps are
+few. */
+
+#define GL_TIME_ELAPSED_EXT 0x88BF
+#define DYNAMIC_QUERIES 3
+#define DYNAMIC_STEP 0.25
+#define DYNAMIC_WINDOW 30
+
+static struct
+{
+	BOOL enabled, timing;
+	GLuint queries[DYNAMIC_QUERIES];
+	unsigned long frame;
+	/* the scale set, and the scale drawn at (0 until the first frame) */
+	double configured, scale;
+	double gpu_ns, period_ns;
+	unsigned long samples;
+	unsigned long long presented_ns, changed_ns;
+} dynamic;
+
+static unsigned long long dynamic_now_ns(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (unsigned long long)now.tv_sec * 1000000000ULL + (unsigned long long)now.tv_nsec;
+}
+
+static double dynamic_resolution_scale(double configured)
+{
+	if (!dynamic.enabled)
+		return configured;
+	if (configured != dynamic.configured)
+	{
+		/* (docked or taken out, or the setting changed) */
+		dynamic.configured = configured;
+		dynamic.scale = configured;
+		dynamic.samples = 0;
+		dynamic.gpu_ns = dynamic.period_ns = 0.0;
+	}
+	return dynamic.scale;
+}
+
+static void dynamic_resolution_start(void)
+{
+	if (!config_boolean("display.dynamic_resolution") || !host_gl_has_extension("GL_EXT_disjoint_timer_query"))
+		return;
+	glGenQueries(DYNAMIC_QUERIES, dynamic.queries);
+	dynamic.enabled = TRUE;
+	platform_log("dynamic resolution: on");
+}
+
+/* the frame's GPU time measured (two frames late) and the next one's begun;
+a step taken when a window of frames calls for one */
+static void dynamic_resolution_frame(void)
+{
+	unsigned long long now = dynamic_now_ns();
+	GLuint oldest, available = 0, elapsed = 0;
+
+	if (!dynamic.enabled)
+		return;
+	if (dynamic.timing)
+		glEndQuery(GL_TIME_ELAPSED_EXT);
+	/* (frame n begins query (n + 1) % 3, which frame n + 1 ends and frame
+	n + 3 reads: the first read is at frame 3) */
+	oldest = dynamic.queries[(dynamic.frame + 1) % DYNAMIC_QUERIES];
+	if (dynamic.frame >= DYNAMIC_QUERIES)
+	{
+		glGetQueryObjectuiv(oldest, GL_QUERY_RESULT_AVAILABLE, &available);
+		if (available)
+			glGetQueryObjectuiv(oldest, GL_QUERY_RESULT, &elapsed);
+	}
+	glBeginQuery(GL_TIME_ELAPSED_EXT, oldest);
+	dynamic.timing = TRUE;
+	dynamic.frame++;
+	if (available && dynamic.presented_ns && dynamic.scale > 0.0)
+	{
+		dynamic.gpu_ns += (double)elapsed;
+		dynamic.period_ns += (double)(now - dynamic.presented_ns);
+		dynamic.samples++;
+	}
+	dynamic.presented_ns = now;
+	if (dynamic.samples >= DYNAMIC_WINDOW)
+	{
+		double gpu = dynamic.gpu_ns / dynamic.samples, period = dynamic.period_ns / dynamic.samples;
+		double target = 1.0e9 / (config_boolean("display.lock_30fps") || !config_boolean("display.interpolation") ?
+			30.0 : 60.0);
+		double before = dynamic.scale;
+
+		if (period > target * 1.05 && gpu > period * 0.85 && dynamic.scale > 1.0 &&
+			now - dynamic.changed_ns > 1000000000ULL)
+		{
+			dynamic.scale = dynamic.scale - DYNAMIC_STEP > 1.0 ? dynamic.scale - DYNAMIC_STEP : 1.0;
+		}
+		else if (dynamic.scale < dynamic.configured && now - dynamic.changed_ns > 3000000000ULL)
+		{
+			double up = dynamic.scale + DYNAMIC_STEP < dynamic.configured ? dynamic.scale + DYNAMIC_STEP :
+				dynamic.configured;
+
+			if (gpu * (up * up) / (dynamic.scale * dynamic.scale) < target * 0.8)
+				dynamic.scale = up;
+		}
+		if (dynamic.scale != before)
+		{
+			dynamic.changed_ns = now;
+			platform_log("dynamic resolution: %.0f lines (the GPU %.1f ms a frame of %.1f)",
+				480.0 * dynamic.scale, gpu / 1.0e6, period / 1.0e6);
+		}
+		dynamic.samples = 0;
+		dynamic.gpu_ns = dynamic.period_ns = 0.0;
+	}
+}
+#endif
+
 static void screen_mode_choose(long *width, float scale[2])
 {
 #ifdef HALO_GUEST
@@ -116,6 +239,9 @@ static void screen_mode_choose(long *width, float scale[2])
 			render_scale = 1.0;
 		if (render_scale > 3.0)
 			render_scale = 3.0;
+#ifdef HALO_SWITCH
+		render_scale = dynamic_resolution_scale(render_scale);
+#endif
 		scale[0] = scale[1] = (float)render_scale;
 	}
 #else
@@ -1129,6 +1255,7 @@ static void gl_initialize(void)
 	device.gl_ready = TRUE;
 #ifdef HALO_SWITCH
 	async_shaders_start();
+	dynamic_resolution_start();
 #endif
 }
 
@@ -4449,6 +4576,9 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		/* row 0 of the render target is the top of the picture */
 		glBlitFramebuffer(0, 0, (GLint)back_buffer->target.gl_width, (GLint)back_buffer->target.gl_height,
 			x, y + height, x + width, y, GL_COLOR_BUFFER_BIT, GL_LINEAR);
+#ifdef HALO_SWITCH
+		dynamic_resolution_frame();
+#endif
 		platform_video_swap();
 		gl_state_forget(_gl_state_framebuffer | _gl_state_masks);
 		xgpu_texture_cache_begin_frame();
