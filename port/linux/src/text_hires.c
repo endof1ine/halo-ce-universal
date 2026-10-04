@@ -263,35 +263,26 @@ unsigned int text_hires_atlas_texture(unsigned long data)
 		glBindTexture(GL_TEXTURE_2D, atlas_texture);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, ATLAS_SIZE, ATLAS_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-		xgpu_gl_state_invalidate();
+		/* the coverage alone, read as white with it for alpha (as the maps'
+		fonts are): a quarter of the memory of RGBA */
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_ONE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_ONE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_ONE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, GL_RED);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, ATLAS_SIZE, ATLAS_SIZE, 0, GL_RED, GL_UNSIGNED_BYTE, NULL);
+		xgpu_gl_state_forget_textures();
 		dirty_top = 0;
 		dirty_bottom = ATLAS_SIZE;
 	}
 	if (dirty_top < dirty_bottom)
 	{
-		/* (white, the glyph's coverage its alpha, as the maps' fonts are) */
-		long rows = dirty_bottom - dirty_top;
-		unsigned char *texels = malloc((size_t)rows * ATLAS_SIZE * 4);
-
-		if (texels)
-		{
-			long index;
-			const unsigned char *coverage = atlas + (long)dirty_top * ATLAS_SIZE;
-
-			for (index = 0; index < rows * ATLAS_SIZE; index++)
-			{
-				texels[index * 4 + 0] = texels[index * 4 + 1] = texels[index * 4 + 2] = 255;
-				texels[index * 4 + 3] = coverage[index];
-			}
-			glBindTexture(GL_TEXTURE_2D, atlas_texture);
-			glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, dirty_top, ATLAS_SIZE, (GLsizei)rows, GL_RGBA, GL_UNSIGNED_BYTE, texels);
-			xgpu_gl_state_invalidate();
-			free(texels);
-			dirty_top = ATLAS_SIZE;
-			dirty_bottom = 0;
-		}
+		glBindTexture(GL_TEXTURE_2D, atlas_texture);
+		glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, dirty_top, ATLAS_SIZE, (GLsizei)(dirty_bottom - dirty_top), GL_RED,
+			GL_UNSIGNED_BYTE, atlas + (long)dirty_top * ATLAS_SIZE);
+		xgpu_gl_state_forget_textures();
+		dirty_top = ATLAS_SIZE;
+		dirty_bottom = 0;
 	}
 	return atlas_texture;
 }
