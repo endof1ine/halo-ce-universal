@@ -353,7 +353,7 @@ static const struct config_setting config_settings[] =
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 #define CONFIG_PLATFORM _platform_android
 #else
 #define CONFIG_PLATFORM _platform_desktop
@@ -375,7 +375,7 @@ static pthread_mutex_t config_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void config_path(char *path, size_t size)
 {
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	/* the data folder, which the app names (port/android/host/host_main.c) */
 	const char *root = getenv("HALO_DATA_ROOT");
 
@@ -391,7 +391,7 @@ static void config_path(char *path, size_t size)
 /* the whole file, NUL terminated, or NULL; free() it */
 static char *config_read_file(const char *path, size_t *size)
 {
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	FILE *file = fopen(path, "rb");
 	char *text = NULL;
 	long length;
@@ -434,7 +434,7 @@ static char *config_read_file(const char *path, size_t *size)
 
 static int config_write_file(const char *path, const char *text)
 {
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	FILE *file = fopen(path, "wb");
 	int written;
 
@@ -503,7 +503,7 @@ static void config_append_setting(struct config_text *text, const struct config_
 		if (*line)
 			line++;
 	}
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	/* (Android apps have no environment to set) */
 	switch (setting->environment_style)
 	{
@@ -530,7 +530,7 @@ static char *config_default_text(void)
 	char section[32] = "";
 	size_t index;
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	config_append(&text,
 		"# Halo settings\n"
 		"#\n"
@@ -1061,7 +1061,7 @@ void config_folder(char *path, size_t size)
 
 	config_path(file, sizeof(file));
 	separator = strrchr(file, '/');
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	if (!separator || (strrchr(file, '\\') && strrchr(file, '\\') > separator))
 		separator = strrchr(file, '\\');
 #endif

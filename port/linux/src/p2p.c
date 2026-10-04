@@ -624,7 +624,7 @@ static int hardware_id_source(char *text, int size)
 	int path_count = 0;
 	int index;
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	snprintf(android_path, sizeof(android_path), "%s/hardware_id.txt", platform_data_root());
 	paths[path_count++] = android_path;
 #else
@@ -2698,7 +2698,7 @@ static void handoff_answer(const unsigned char *key, const unsigned char *messag
 
 int p2p_hand_off_invite(void)
 {
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	return 0;
 #else
 	char invite[256];
@@ -2762,7 +2762,7 @@ static void handoff_readable(void)
 	p2p_invite_received(invite);
 }
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 /* the app's activity writes a link it was opened with here */
 static void poll_invite_file(void)
 {
@@ -2817,7 +2817,7 @@ static void *p2p_thread(void *unused)
 
 	(void)unused;
 	pthread_mutex_lock(&p2p_lock);
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	/* (here: it may wait for a program) */
 	p2p_register_url_scheme("halo", "Halo: Combat Evolved invite");
 #endif
@@ -2989,7 +2989,7 @@ static void *p2p_thread(void *unused)
 		update_joining();
 		update_upnp();
 		p2p_discord_update();
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 		poll_invite_file();
 #endif
 	}
@@ -3035,7 +3035,7 @@ void p2p_initialize(unsigned long local_address)
 		posix_socket_setsockopt(p2p.tunnel_socket, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size));
 		posix_socket_setsockopt(p2p.tunnel_socket, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size));
 	}
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	/* the first copy of the game takes the invites later ones are opened
 	with */
 	p2p.has_handoff_key = handoff_key(p2p.handoff_key);

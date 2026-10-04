@@ -61,6 +61,9 @@ GUEST_ABI_FLAGS = [
     "-D__linux__=1",
     "-D__unix__=1",
     "-DHALO_ANDROID=1",
+    # the guest image of a native host (also the Switch's): ILP32 AArch64
+    # code, SDL and OpenGL ES through the host
+    "-DHALO_GUEST=1",
     # ARMv8.0: nothing the emulator's binary translation or an older
     # device could lack (Darwin targets otherwise assume pointer
     # authentication and FP16)

@@ -20,7 +20,7 @@ and the debug keyboard that the game's console reads.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#if !defined(_WIN32) && !defined(HALO_ANDROID)
+#if !defined(_WIN32) && !defined(HALO_GUEST)
 #include <signal.h>
 #endif
 
@@ -36,7 +36,7 @@ static unsigned char keys_pressed[SDL_SCANCODE_COUNT];
 /* likewise the mouse buttons pressed since the last read, so that a click
 quicker than a frame still counts */
 static unsigned char mouse_buttons_pressed[PLATFORM_MOUSE_BUTTON_COUNT];
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 /* the menus' pointer (platform_ui_pointer_set_active), under input_lock */
 static struct platform_ui_pointer ui_pointer;
 static float ui_pointer_wheel;
@@ -79,7 +79,7 @@ static long scoreboard_pages;
 static struct platform_keystroke keystroke_queue[KEYSTROKE_QUEUE_SIZE];
 static unsigned long keystroke_head, keystroke_count;
 
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 /* updater.c's: the desktop self-updater */
 void updater_start(void);
 void updater_poll(SDL_Window *window);
@@ -89,7 +89,7 @@ BOOL platform_sdl_initialize(void)
 {
 	if (platform_sdl_started)
 		return TRUE;
-#if !defined(_WIN32) && !defined(HALO_ANDROID)
+#if !defined(_WIN32) && !defined(HALO_GUEST)
 	/* a write to a connection the other end closed fails instead of ending
 	the game (the game's sockets and Discord's pass MSG_NOSIGNAL, but UPnP's
 	miniupnpc does not, nor does a write to a closed pipe's standard error) */
@@ -100,7 +100,7 @@ BOOL platform_sdl_initialize(void)
 	if (p2p_hand_off_invite())
 		exit(EXIT_SUCCESS);
 	SDL_SetHint(SDL_HINT_APP_NAME, "Halo");
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	/* landscape only; the back key arrives as a key event (xinput_sdl.c)
 	instead of closing the activity */
 	SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
@@ -115,7 +115,7 @@ BOOL platform_sdl_initialize(void)
 		return FALSE;
 	}
 	platform_sdl_started = TRUE;
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	/* found (or offered to the player, platform_offer_game_data) before the
 	game's window opens */
 	platform_data_root();
@@ -125,7 +125,7 @@ BOOL platform_sdl_initialize(void)
 	return TRUE;
 }
 
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 /* ---------- first start without game data (xbox_files.c) */
 
 struct data_extraction
@@ -348,7 +348,7 @@ int halo_interpolation_enabled(void)
 	return enabled;
 }
 
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 /* the display mode (display.mode, else display.fullscreen's: borderless or
 the window) */
 enum
@@ -435,7 +435,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		scale = 1;
 	platform_window_scale = scale;
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
@@ -449,7 +449,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 0);
 	if (config_boolean("debug.gl_debug"))
 		SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_DEBUG_FLAG);
-#if !defined(HALO_ANDROID) && !defined(_WIN32)
+#if !defined(HALO_GUEST) && !defined(_WIN32)
 	/* Mesa's GL thread: the renderer makes thousands of GL calls a frame
 	and never waits for their results, so handing them to a thread of
 	their own takes a fifth of the main thread's time off it. It leaves an
@@ -457,7 +457,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	setenv("mesa_glthread", "true", 0);
 #endif
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	platform_window = SDL_CreateWindow("Halo", (int)(width * scale), (int)(height * scale),
 		SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN);
 #else
@@ -475,11 +475,11 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 		platform_log("SDL_CreateWindow failed: %s", SDL_GetError());
 		return FALSE;
 	}
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	platform_fullscreen_kind_apply();
 #endif
 	platform_gl_context = SDL_GL_CreateContext(platform_window);
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	/* ES 3.2 where the driver has it, otherwise the renderer makes do with
 	3.0 plus extensions */
 	if (!platform_gl_context)
@@ -500,7 +500,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 	(void)version;
 	platform_event_thread = SDL_GetCurrentThreadID();
 	platform_log("OpenGL %s on %s", (const char *)glGetString(GL_VERSION), (const char *)glGetString(GL_RENDERER));
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	platform_mouse_capture(TRUE);
 #endif
 	return TRUE;
@@ -510,7 +510,7 @@ BOOL platform_video_initialize(unsigned long width, unsigned long height)
 be resized) and display.vsync, as Settings has written them */
 void platform_display_apply(void)
 {
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	BOOL fullscreen = platform_fullscreen_setting();
 	long scale = config_integer("display.window_scale");
 
@@ -536,7 +536,7 @@ void platform_video_drawable_size(int *width, int *height)
 	SDL_GetWindowSizeInPixels(platform_window, width, height);
 }
 
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 /* with vsync off, the time between frames display.max_fps asks for (0:
 twice the display's refresh rate), or 0 for no limit. A GPU never left idle
 can hang (Intel's Raptor Lake graphics, whose reset then takes the desktop
@@ -570,13 +570,13 @@ static Uint64 frame_interval_ns(void)
 #endif
 void platform_video_swap(void)
 {
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	static Uint64 next_frame;
 	Uint64 interval, now;
 
 #endif
 	SDL_GL_SwapWindow(platform_window);
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	interval = frame_interval_ns();
 	if (!interval)
 		return;
@@ -743,7 +743,7 @@ BOOL platform_next_keystroke(struct platform_keystroke *keystroke)
 
 /* ---------- internet play's invite links (p2p.c) */
 
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 /* SDL declares it for Android builds only, which the guest is not
 (guest/runtime/guest_sdl.c passes it to the host) */
 bool SDL_ShowAndroidToast(const char *message, int duration, int gravity, int xoffset, int yoffset);
@@ -799,7 +799,7 @@ static void platform_invite_clipboard(BOOL look)
 		SDL_SetClipboardText(invite);
 		snprintf(seen, sizeof(seen), "%s", invite);
 		platform_log("Internet play: the invite link is on the clipboard");
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 		SDL_ShowAndroidToast("Hosting: the invite link is on the clipboard", 1, -1, 0, 0);
 #endif
 	}
@@ -814,7 +814,7 @@ static void platform_invite_clipboard(BOOL look)
 			checksum copied for something else) */
 			if (platform_text_has_invite_link(text) && p2p_join_invite(text))
 			{
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 				SDL_ShowAndroidToast("Joining the invite on the clipboard", 1, -1, 0, 0);
 #endif
 			}
@@ -861,7 +861,7 @@ static void platform_show_pending_message(void)
 	pthread_mutex_unlock(&platform_message_lock);
 	if (!pending)
 		return;
-#ifdef HALO_ANDROID
+#ifdef HALO_GUEST
 	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_WARNING, title, text, NULL);
 #else
 	{
@@ -884,7 +884,7 @@ menus' Quit: port/linux/game/menu_functions.c); Android's menus have none,
 as the system closes its apps */
 void platform_request_quit(void)
 {
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	SDL_Event event;
 
 	memset(&event, 0, sizeof(event));
@@ -937,7 +937,7 @@ void platform_pump_events(void)
 		exit(EXIT_SUCCESS);
 	}
 	platform_show_pending_message();
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 	updater_poll(platform_window);
 #endif
 	pthread_mutex_lock(&input_lock);
@@ -979,7 +979,7 @@ void platform_pump_events(void)
 				input_state.mouse_released = !input_state.mouse_released;
 				platform_mouse_capture(!input_state.mouse_released && !input_state.ui_pointer);
 			}
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 			/* F11 switches between fullscreen and the window (SDL keeps the
 			window's size and place while fullscreen) */
 			if (event.key.down && !event.key.repeat && event.key.scancode == SDL_SCANCODE_F11)
@@ -990,7 +990,7 @@ void platform_pump_events(void)
 #endif
 			break;
 		case SDL_EVENT_MOUSE_MOTION:
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 			/* in the menus the mouse moves the pointer, not the view */
 			if (input_state.ui_pointer)
 			{
@@ -1021,7 +1021,7 @@ void platform_pump_events(void)
 				binding_captured_input = INPUT_MOUSE + event.button.button;
 				break;
 			}
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 			/* clicks in the menus go to the pointer; a button held down
 			when the menu closes stays up until pressed again, so the click
 			that resumes the game does not also fire */
@@ -1072,7 +1072,7 @@ void platform_pump_events(void)
 				}
 				break;
 			}
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 			if (input_state.ui_pointer)
 			{
 				/* whole notches: smooth-scrolling wheels send fractions */
@@ -1101,7 +1101,7 @@ void platform_pump_events(void)
 		case SDL_EVENT_WINDOW_FOCUS_GAINED:
 			input_state.focused = TRUE;
 			look_at_clipboard = TRUE;
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 			if (!input_state.mouse_released && !input_state.ui_pointer)
 				platform_mouse_capture(TRUE);
 #endif
@@ -1150,7 +1150,7 @@ int platform_binding_capture_poll(int *input)
 	return result;
 }
 
-#ifndef HALO_ANDROID
+#ifndef HALO_GUEST
 /* ---------- the menus' pointer */
 
 /* While a menu is up the mouse is released, its pointer shows (centered when
