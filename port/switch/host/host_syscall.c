@@ -394,15 +394,43 @@ static long guest_close(long long descriptor)
 	return close((int)descriptor) == 0 ? 0 : failure();
 }
 
-static long guest_dup(long long descriptor)
+/* dup, as F_DUPFD's (the lowest free number from minimum on) or, with
+target not -1, dup3's (exactly that number) */
+static long guest_dup(long long descriptor, long long minimum, long long target)
 {
 	int copy;
 
-	if (is_directory(descriptor))
+	if (is_directory(descriptor) || (target >= 0 && is_directory(target)))
 		return -22;
-	copy = dup((int)descriptor);
+	if (target >= 0)
+	{
+		if (target == descriptor)
+			return -22;
+		copy = dup2((int)descriptor, (int)target);
+	}
+	else
+	{
+		int below[16];
+		int count = 0;
+
+		/* the numbers under minimum taken, then given back */
+		while ((copy = dup((int)descriptor)) >= 0 && copy < minimum && count < 16)
+			below[count++] = copy;
+		while (count)
+			close(below[--count]);
+		if (copy >= 0 && copy < minimum)
+		{
+			close(copy);
+			return -24; /* EMFILE */
+		}
+	}
 	if (copy < 0)
 		return failure();
+	if (copy >= DIRECTORY_BASE)
+	{
+		close(copy);
+		return -24;
+	}
 	if (copy < FILE_LOCKS && descriptor >= 0 && descriptor < FILE_LOCKS)
 		file_flags[copy] = file_flags[descriptor];
 	return copy;
@@ -787,12 +815,14 @@ static long guest_futex(uint64_t address, int operation, uint32_t value, uint64_
 
 /* ---------- process and miscellany */
 
+/* the kernel's thread id (a count from boot, never 0): musl's mutexes keep
+it as their owner, under the two flag bits of a robust mutex's word */
 static uint32_t thread_id(void)
 {
 	u64 id = 0;
 
 	svcGetThreadId(&id, CUR_THREAD_HANDLE);
-	return (uint32_t)(id & 0x3fffffff) | 1;
+	return (uint32_t)(id & 0x3fffffff);
 }
 
 static long guest_uname(uint64_t buffer)
@@ -842,10 +872,11 @@ long long host_syscall(long long number, long long a, long long b, long long c, 
 		return guest_vector(a, (uint64_t)b, (int)c, 0, 0, 0);
 	case SYS_writev:
 		return guest_vector(a, (uint64_t)b, (int)c, 0, 0, 1);
+	/* (musl passes their offset in two halves, low first) */
 	case SYS_preadv:
-		return guest_vector(a, (uint64_t)b, (int)c, d, 1, 0);
+		return guest_vector(a, (uint64_t)b, (int)c, (int64_t)((uint32_t)d | (uint64_t)e << 32), 1, 0);
 	case SYS_pwritev:
-		return guest_vector(a, (uint64_t)b, (int)c, d, 1, 1);
+		return guest_vector(a, (uint64_t)b, (int)c, (int64_t)((uint32_t)d | (uint64_t)e << 32), 1, 1);
 	case SYS_pread64:
 		return guest_pread(a, GUEST(void *, b), (uint32_t)c, d, 0);
 	case SYS_pwrite64:
@@ -951,7 +982,7 @@ long long host_syscall(long long number, long long a, long long b, long long c, 
 		}
 		case LINUX_F_DUPFD:
 		case LINUX_F_DUPFD_CLOEXEC:
-			return guest_dup(a);
+			return guest_dup(a, c, -1);
 		case LINUX_F_GETFD:
 		case LINUX_F_SETFD:
 		case LINUX_F_SETFL:
@@ -960,8 +991,9 @@ long long host_syscall(long long number, long long a, long long b, long long c, 
 			return -22;
 		}
 	case SYS_dup:
+		return guest_dup(a, 0, -1);
 	case SYS_dup3:
-		return guest_dup(a);
+		return guest_dup(a, 0, b);
 	case SYS_getcwd:
 	{
 		char *buffer = GUEST(char *, a);

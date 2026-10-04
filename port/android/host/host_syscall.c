@@ -211,12 +211,13 @@ long long host_syscall(long long number, long long a, long long b, long long c,
 		return result_of(write((int)a, GUEST(const void *, b), (size_t)(uint32_t)c));
 	case SYS_writev:
 		return guest_writev((int)a, (uint64_t)b, (int)c, 0, 0);
+	/* (musl passes their offset in two halves, low first) */
 	case SYS_pwritev:
-		return guest_writev((int)a, (uint64_t)b, (int)c, d, 1);
+		return guest_writev((int)a, (uint64_t)b, (int)c, (int64_t)((uint32_t)d | (uint64_t)e << 32), 1);
 	case SYS_readv:
 		return guest_readv((int)a, (uint64_t)b, (int)c, 0, 0);
 	case SYS_preadv:
-		return guest_readv((int)a, (uint64_t)b, (int)c, d, 1);
+		return guest_readv((int)a, (uint64_t)b, (int)c, (int64_t)((uint32_t)d | (uint64_t)e << 32), 1);
 
 	case SYS_clock_gettime:
 	case SYS_clock_getres:
