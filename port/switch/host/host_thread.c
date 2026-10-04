@@ -51,7 +51,9 @@ void host_set_tp(uint32_t thread)
 
 /* uint64_t call_on_stack(void *(*function)(void *), void *argument, void *stack_top):
 calls the function with the stack pointer at stack_top, and returns its
-result on the caller's stack */
+result on the caller's stack. The frame chain starts over there (a null
+frame pointer): guest code walks it (its assertions' stack dumps), and a
+frame record above 4 GB would reach it truncated */
 uint64_t call_on_stack(void *(*function)(void *), void *argument, void *stack_top);
 __asm__(
 	".text\n"
@@ -66,6 +68,7 @@ __asm__(
 	"	str x3, [sp, #-16]!\n"
 	"	mov x3, x0\n"
 	"	mov x0, x1\n"
+	"	mov x29, xzr\n"
 	"	blr x3\n"
 	"	ldr x3, [sp], #16\n"
 	"	mov sp, x3\n"

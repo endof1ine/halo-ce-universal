@@ -19,6 +19,7 @@ Standard output and error go to the log.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <switch.h>
 #include <time.h>
@@ -222,6 +223,9 @@ directories with getdents64, newlib with readdir. */
 positional ones of its own), so a file's operations take its lock */
 static Mutex file_locks[FILE_LOCKS];
 static int file_flags[FILE_LOCKS];
+/* the game's log, debug.txt, whose writes the host log repeats (its
+assertions, read live over nxlink) */
+static uint8_t file_mirrored[FILE_LOCKS];
 
 struct guest_directory
 {
@@ -361,7 +365,12 @@ static long guest_openat(long long descriptor, const char *guest_path, int flags
 		return -24;
 	}
 	if (host < FILE_LOCKS)
+	{
+		size_t length = strlen(path);
+
 		file_flags[host] = flags;
+		file_mirrored[host] = length >= 9 && !strcasecmp(path + length - 9, "debug.txt");
+	}
 	return host;
 }
 
@@ -460,6 +469,8 @@ static long guest_write(long long descriptor, const void *buffer, size_t size)
 	}
 	if (is_directory(descriptor))
 		return -21;
+	if (descriptor >= 3 && descriptor < FILE_LOCKS && file_mirrored[descriptor])
+		log_bytes(2, buffer, size);
 	file_lock(descriptor);
 	result = result_of(write((int)descriptor, buffer, size));
 	file_unlock(descriptor);
