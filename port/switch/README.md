@@ -205,8 +205,6 @@ and the options of the build.
 
 ## Limits
 
-- Internet play has no UPnP. To host a game on the internet, forward the
-  port on the router.
 - The game cannot extract the game data from a disc image on the Switch.
 - When the game exits, the Switch goes back to the HOME menu, not to the
   Homebrew Menu.

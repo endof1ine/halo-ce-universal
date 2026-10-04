@@ -1,29 +1,26 @@
 /*
 HOST_UPNP.C
 
-Internet play's UPnP (port/linux/src/posix.h): the Switch port has none
-yet, so a game it hosts on the internet needs its router's port forwarded
-by hand, or another player hosting. port/linux/src/posix_upnp.c with
-miniupnpc could serve it later.
+Internet play's UPnP on the Switch is the desktop's and Android's
+(port/linux/src/posix_upnp.c, with port/third_party/miniupnpc), built into
+the host. These are what miniupnpc needs that libnx has not
+(compat/upnp_compat.h): interface names, which only IPv6 addresses' scopes
+use, and the Switch's network has none.
 */
 
-#include "posix.h"
+#include "compat/upnp_compat.h"
 
-#include <stdio.h>
+#include <stddef.h>
 
-int posix_upnp_forward_udp(unsigned short port, unsigned short preferred_port, posix_ulong *external_address,
-	unsigned short *external_port, char *error, int error_size)
+unsigned int if_nametoindex(const char *name)
 {
-	(void)port;
-	(void)preferred_port;
-	(void)external_address;
-	(void)external_port;
-	if (error && error_size > 0)
-		snprintf(error, (size_t)error_size, "the Switch port has no UPnP");
+	(void)name;
 	return 0;
 }
 
-void posix_upnp_stop_forwarding_udp(unsigned short external_port)
+char *if_indextoname(unsigned int index, char *name)
 {
-	(void)external_port;
+	(void)index;
+	(void)name;
+	return NULL;
 }

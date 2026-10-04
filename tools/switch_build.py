@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional
 
 from .guest_build import GuestPort, fetch_musl, generate_guest_image, guest_configure_inputs
 from .embed_assets import hud_configure_inputs
+from .linux_build import MINIUPNPC_DEFINES, MINIUPNPC_DIR, miniupnpc_sources
 from .ninja_syntax import Writer
 
 PORT_DIR = Path("port/switch")
@@ -173,6 +174,15 @@ def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path, 
         obj = obj_dir / (source.name + ".o")
         n.build(outputs=obj, rule="switch_host_cc", inputs=source, implicit=[guest_syscall_h],
                 variables={"cflags": host_cflags + (" -w" if source.parent == TOML_DIR else "")})
+        objects.append(obj)
+    # internet play's UPnP (posix_upnp.c, with port/third_party/miniupnpc), as
+    # on Android, with what libnx lacks of it (host/compat, host_upnp.c)
+    miniupnpc_cflags = " ".join([host_cflags, f"-I{PORT_DIR}/host/compat", f"-include {PORT_DIR}/host/compat/upnp_compat.h",
+                                 f"-I{MINIUPNPC_DIR / 'include'}", f"-I{MINIUPNPC_DIR / 'src'}", *MINIUPNPC_DEFINES])
+    for source in [LINUX_DIR / "src" / "posix_upnp.c", *miniupnpc_sources()]:
+        obj = obj_dir / ("miniupnpc_" + source.name + ".o" if source.parent.parent == MINIUPNPC_DIR else source.name + ".o")
+        n.build(outputs=obj, rule="switch_host_cc", inputs=source,
+                variables={"cflags": miniupnpc_cflags + (" -w" if source.name != "posix_upnp.c" else "")})
         objects.append(obj)
     table_obj = obj_dir / "host_import_table.c.o"
     n.build(outputs=table_obj, rule="switch_host_cc", inputs=import_table, variables={"cflags": host_cflags})
