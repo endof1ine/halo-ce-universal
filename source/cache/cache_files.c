@@ -843,6 +843,13 @@ long scenario_tags_load(
 
 				hud_hires_tags_loaded();
 			}
+			/* port: the map's shaders compiled now, not at their first draw
+			(port/linux/src/d3d8_gl.c) */
+			{
+				extern void xgpu_shader_warm_map(char const *map);
+
+				xgpu_shader_warm_map(stripped_scenario_name);
+			}
 			result = cache_file_globals.tag_header->scenario_tag_index;
 		}
 	}

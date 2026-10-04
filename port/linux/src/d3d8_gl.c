@@ -25,6 +25,7 @@ Conventions carried over from the Xbox:
 #include "sdl_platform.h"
 #include "halo_ui_pointer.h"
 #include "port_config.h"
+#include "posix.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -180,6 +181,9 @@ struct vertex_shader_object
 	GLuint shader[1 + VERTEX_SHADER_STREAM_VARIANTS];
 	unsigned long shader_packed_mask[1 + VERTEX_SHADER_STREAM_VARIANTS];
 	unsigned long shader_next_variant;
+	/* for the shader warm-up, which finds the program by its code */
+	unsigned long instruction_hash;
+	struct vertex_shader_object *next_created;
 };
 
 /* ---------- programs */
@@ -1728,6 +1732,9 @@ static void parse_declaration(struct vertex_shader_object *object, const DWORD *
 	}
 }
 
+static unsigned long hash_words(const void *data, unsigned long size);
+static struct vertex_shader_object *created_vertex_shaders;
+
 HRESULT WINAPI D3DDevice_CreateVertexShader(CONST DWORD *declaration, CONST DWORD *function, DWORD *handle, DWORD usage)
 {
 	struct vertex_shader_object *object = calloc(1, sizeof(*object));
@@ -1743,7 +1750,10 @@ HRESULT WINAPI D3DDevice_CreateVertexShader(CONST DWORD *declaration, CONST DWOR
 		object->instruction_count = function[0] >> 16;
 		object->instructions = malloc(object->instruction_count * 4 * sizeof(DWORD));
 		memcpy(object->instructions, function + 1, object->instruction_count * 4 * sizeof(DWORD));
+		object->instruction_hash = hash_words(object->instructions, object->instruction_count * 4 * sizeof(DWORD));
 	}
+	object->next_created = created_vertex_shaders;
+	created_vertex_shaders = object;
 	parse_declaration(object, declaration);
 	/* odd values are FVF codes; programmable shader handles are even */
 	*handle = (DWORD)object;
@@ -1833,9 +1843,9 @@ static unsigned long hash_words(const void *data, unsigned long size)
 	return hash;
 }
 
-static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate)
+static GLuint vertex_shader_get_masked(struct vertex_shader_object *program, BOOL immediate,
+	unsigned long packed_mask)
 {
-	unsigned long packed_mask = immediate ? 0 : device.vertex_shader->packed_mask;
 	unsigned long variant;
 
 	if (immediate)
@@ -1876,6 +1886,11 @@ static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immed
 		free(source);
 	}
 	return program->shader[variant];
+}
+
+static GLuint vertex_shader_get(struct vertex_shader_object *program, BOOL immediate)
+{
+	return vertex_shader_get_masked(program, immediate, immediate ? 0 : device.vertex_shader->packed_mask);
 }
 
 typedef char pixel_shader_key_size_assert[sizeof(struct nv2a_pixel_shader_key) % 4 == 0 ? 1 : -1];
@@ -1925,6 +1940,9 @@ static GLuint fragment_shader_get(const struct nv2a_pixel_shader_key *key)
 	return entry->shader;
 }
 
+/* programs linked so far, which tells a draw that it made a new one */
+static unsigned long programs_linked;
+
 static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_shader)
 {
 	static struct program_entry *last;
@@ -1955,6 +1973,7 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 	if (!vertex_shader || !fragment_shader)
 		return NULL;
 
+	programs_linked++;
 	entry->program = glCreateProgram();
 	glAttachShader(entry->program, vertex_shader);
 	glAttachShader(entry->program, fragment_shader);
@@ -2023,6 +2042,153 @@ static struct program_entry *program_get(GLuint vertex_shader, GLuint fragment_s
 	}
 	last = entry;
 	return entry;
+}
+
+/* ---------- shader warm-up
+
+A program's first draw compiles its shaders, which with some drivers
+(mesa's nouveau on the Switch: some 40 ms a program, on the CPU) shows as a
+hitch the first time an effect appears. Each map's programs are recorded
+in the save folder (shader_warm/<map>.bin) as they are made, and compiled
+with a draw of their own while the map loads the next time
+(xgpu_shader_warm_map, from scenario_tags_load). A record names the vertex
+program by its code, as its object differs from run to run. */
+
+#define SHADER_WARM_MAGIC 0x31525753UL /* 'SWR1' */
+
+struct shader_warm_record
+{
+	DWORD magic;
+	DWORD instruction_hash;
+	DWORD instruction_count;
+	DWORD packed_mask;
+	DWORD immediate;
+	struct nv2a_pixel_shader_key key;
+};
+
+static char shader_warm_map[64];
+static FILE *shader_warm_file;
+
+static void shader_warm_path(const char *map, char *path, size_t size)
+{
+	snprintf(path, size, "%s/shader_warm/%s.bin", platform_save_root(), map);
+}
+
+static void shader_warm_record(struct vertex_shader_object *program, BOOL immediate, unsigned long packed_mask,
+	const struct nv2a_pixel_shader_key *key)
+{
+	struct shader_warm_record record;
+
+	if (!shader_warm_map[0] || !program->instructions)
+		return;
+	if (!shader_warm_file)
+	{
+		char path[600];
+
+		snprintf(path, sizeof(path), "%s/shader_warm", platform_save_root());
+		posix_make_directory(path);
+		shader_warm_path(shader_warm_map, path, sizeof(path));
+		shader_warm_file = fopen(path, "ab");
+		if (!shader_warm_file)
+		{
+			shader_warm_map[0] = 0;
+			return;
+		}
+	}
+	memset(&record, 0, sizeof(record));
+	record.magic = SHADER_WARM_MAGIC;
+	record.instruction_hash = (DWORD)program->instruction_hash;
+	record.instruction_count = (DWORD)program->instruction_count;
+	record.packed_mask = (DWORD)packed_mask;
+	record.immediate = immediate ? 1 : 0;
+	record.key = *key;
+	fwrite(&record, sizeof(record), 1, shader_warm_file);
+	fflush(shader_warm_file);
+}
+
+/* a draw of one point into a 1x1 target of its own, which makes the driver
+compile what it leaves for the first draw */
+static void shader_warm_draw(GLuint program)
+{
+	static GLuint framebuffer, texture, vertex_array;
+
+	if (!framebuffer)
+	{
+		glGenTextures(1, &texture);
+		glBindTexture(GL_TEXTURE_2D, texture);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+		glGenFramebuffers(1, &framebuffer);
+		glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+		glGenVertexArrays(1, &vertex_array);
+	}
+	glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+	glViewport(0, 0, 1, 1);
+	glBindVertexArray(vertex_array);
+	glUseProgram(program);
+	glDrawArrays(GL_POINTS, 0, 1);
+}
+
+void xgpu_shader_warm_map(const char *map)
+{
+	struct shader_warm_record record;
+	char path[600];
+	FILE *file;
+	unsigned long warmed = 0, records = 0;
+	unsigned long long start;
+	struct timespec time;
+
+	if (shader_warm_file)
+	{
+		fclose(shader_warm_file);
+		shader_warm_file = NULL;
+	}
+	snprintf(shader_warm_map, sizeof(shader_warm_map), "%s", map ? map : "");
+	if (!shader_warm_map[0] || config_boolean("debug.no_shader_warm"))
+		return;
+	shader_warm_path(shader_warm_map, path, sizeof(path));
+	file = fopen(path, "rb");
+	if (!file)
+		return;
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	start = (unsigned long long)time.tv_sec * 1000000000ULL + (unsigned long long)time.tv_nsec;
+	while (fread(&record, sizeof(record), 1, file) == 1)
+	{
+		struct vertex_shader_object *program;
+		struct program_entry *entry;
+		unsigned long linked = programs_linked;
+
+		records++;
+		if (record.magic != SHADER_WARM_MAGIC)
+			break;
+		for (program = created_vertex_shaders; program; program = program->next_created)
+		{
+			if (program->instruction_hash == record.instruction_hash &&
+				program->instruction_count == record.instruction_count)
+				break;
+		}
+		if (!program)
+			continue;
+		entry = program_get(vertex_shader_get_masked(program, record.immediate != 0, record.packed_mask),
+			fragment_shader_get(&record.key));
+		if (!entry || programs_linked == linked)
+			continue;
+#ifdef HALO_GLES
+		/* (the visibility tests' programs count samples into a buffer) */
+		if (!record.key.count_samples)
+#endif
+			shader_warm_draw(entry->program);
+		warmed++;
+	}
+	fclose(file);
+	if (warmed)
+	{
+		glBindVertexArray(device.vertex_array);
+		xgpu_gl_state_invalidate();
+	}
+	clock_gettime(CLOCK_MONOTONIC, &time);
+	platform_log("shader warm-up: %lu of %lu programs of %s in %llu ms", warmed, records, shader_warm_map,
+		((unsigned long long)time.tv_sec * 1000000000ULL + (unsigned long long)time.tv_nsec - start) / 1000000ULL);
 }
 
 /* ---------- per-draw state */
@@ -2605,7 +2771,13 @@ static struct program_entry *prepare_draw(BOOL immediate)
 	key.count_samples = device.visibility_test_active && xgpu_capabilities.atomic_counters;
 #endif
 
-	entry = program_get(vertex_shader_get(program, immediate), fragment_shader_get(&key));
+	{
+		unsigned long linked = programs_linked;
+
+		entry = program_get(vertex_shader_get(program, immediate), fragment_shader_get(&key));
+		if (entry && programs_linked != linked)
+			shader_warm_record(program, immediate, immediate ? 0 : device.vertex_shader->packed_mask, &key);
+	}
 	if (!entry)
 	{
 		stats.skipped_link++;
