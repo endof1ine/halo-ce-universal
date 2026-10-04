@@ -8,7 +8,7 @@ ARG LLVM_VERSION=21
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
-		ca-certificates curl gnupg lsb-release git ninja-build python3 python3-pytest \
+		ca-certificates curl gnupg lsb-release git ninja-build python3 python3-pytest rsync \
 		imagemagick xz-utils \
 	&& curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm.gpg \
 	&& echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-${LLVM_VERSION} main" \
