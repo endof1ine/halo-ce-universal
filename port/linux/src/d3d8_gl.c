@@ -2173,7 +2173,7 @@ void xgpu_shader_warm_map(const char *map)
 			fragment_shader_get(&record.key));
 		if (!entry || programs_linked == linked)
 			continue;
-#ifdef HALO_GLES
+#ifdef HALO_GUEST
 		/* (the visibility tests' programs count samples into a buffer) */
 		if (!record.key.count_samples)
 #endif
