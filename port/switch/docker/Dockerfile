@@ -4,7 +4,7 @@
 
 FROM devkitpro/devkita64:latest
 
-ARG LLVM_VERSION=21
+ARG LLVM_VERSION=22
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
