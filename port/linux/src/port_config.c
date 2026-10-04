@@ -48,7 +48,10 @@ enum
 {
 	_platform_desktop = 1,
 	_platform_android = 2,
-	_platform_all = _platform_desktop | _platform_android,
+	_platform_switch = 4,
+	/* the ports whose game is a guest image (port/android, port/switch) */
+	_platform_guest = _platform_android | _platform_switch,
+	_platform_all = _platform_desktop | _platform_guest,
 };
 
 struct config_setting
@@ -75,9 +78,12 @@ static const struct config_setting config_settings[] =
 		"display.fullscreen's (true: borderless). F11 switches to the window and back." },
 	{ "display.window_scale", _config_integer, "2", "HALO_WINDOW_SCALE", _environment_value, _platform_desktop,
 		"The window's size as a multiple of 640x480 (it can be resized)." },
-	{ "display.screen_width", _config_integer, "0", "HALO_SCREEN_WIDTH", _environment_value, _platform_android,
+	{ "display.screen_width", _config_integer, "0", "HALO_SCREEN_WIDTH", _environment_value, _platform_guest,
 		"Columns of the 480-line picture: 0 for the display's shape, 640 for the\n"
 		"Xbox's 4:3." },
+	{ "display.render_scale", _config_real, "1.0", "HALO_RENDER_SCALE", _environment_value, _platform_guest,
+		"The screen's pixels drawn for each of the 480 lines: 1 the Xbox's, up to 3\n"
+		"(1.5: the Switch's 720 lines). More is sharper and asks more of the GPU." },
 	{ "display.vsync", _config_boolean, "true", "HALO_NO_VSYNC", _environment_set_is_false, _platform_all,
 		"Wait for the display between frames; false draws as fast as possible." },
 	{ "display.max_fps", _config_integer, "0", "HALO_MAX_FPS", _environment_value, _platform_desktop,
@@ -349,11 +355,31 @@ static const struct config_setting config_settings[] =
 	{ "debug.sample_seconds", _config_real, "0.0", "HALO_SAMPLE", _environment_value, _platform_android,
 		"Log where every game thread is this often, in seconds (read by the\n"
 		"app, port/android/host/host_debug.c); 0 never." },
+	/* the Switch's host reads these itself (port/switch/host/host_input.c) */
+	{ "input.button_positions", _config_boolean, "false", "HALO_BUTTON_POSITIONS", _environment_value,
+		_platform_switch,
+		"Map A, B, X and Y by position, as an Xbox controller's (the bottom face\n"
+		"button jumps), instead of by their labels." },
+	{ "input.gyro_aim", _config_boolean, "false", "HALO_GYRO_AIM", _environment_value, _platform_switch,
+		"Aim by turning player 1's controller, as well as with the right stick." },
+	{ "input.gyro_sensitivity", _config_real, "1.0", "HALO_GYRO_SENSITIVITY", _environment_value,
+		_platform_switch,
+		"How far the view turns for the controller's turn: 1 as far, 2 twice." },
+	{ "input.gyro_invert_x", _config_boolean, "false", "HALO_GYRO_INVERT_X", _environment_value,
+		_platform_switch, "Gyro aiming turns the view the other way sideways." },
+	{ "input.gyro_invert_y", _config_boolean, "false", "HALO_GYRO_INVERT_Y", _environment_value,
+		_platform_switch, "Gyro aiming turns the view the other way up and down." },
+	{ "input.gyro_aim_assist", _config_boolean, "true", "HALO_GYRO_AIM_ASSIST", _environment_value,
+		_platform_switch,
+		"Magnetism while aiming with the gyro, as with the stick: the view slowed\n"
+		"and dragged along by a target." },
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
 
-#ifdef HALO_GUEST
+#if defined(HALO_SWITCH)
+#define CONFIG_PLATFORM _platform_switch
+#elif defined(HALO_GUEST)
 #define CONFIG_PLATFORM _platform_android
 #else
 #define CONFIG_PLATFORM _platform_desktop
