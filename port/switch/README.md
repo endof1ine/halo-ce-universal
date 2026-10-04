@@ -175,8 +175,10 @@ What is different on the Switch:
   (`0x80000000`), the guest image (`0x88000000`), the Custom Edition tag
   cache (`0x40440000`) and an arena for the rest (`0x90000000` to 4 GB) in
   this way (`host_memory.c`). The kernel puts its own regions at random
-  addresses. If one of them is in these ranges, the game shows a message.
-  Start the game again.
+  addresses. If one of them is in the arena's range, the arena takes the
+  largest free range above the guest image instead (at least 512 MB). Only
+  if one is in the other ranges does the game show a message: start the
+  game again.
 - **Threads.** The kernel of the Switch schedules strictly by priority. The
   main thread of the game has core 0. The other threads of the game share
   cores 1 and 2 at the priority where the kernel takes turns between them

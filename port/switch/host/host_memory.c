@@ -41,11 +41,22 @@ process ends (host_exit).
 its upgraded size */
 #define CUSTOM_EDITION_BASE 0x40440000ull
 #define CUSTOM_EDITION_END (CUSTOM_EDITION_BASE + 0x2280000ull)
-#define ARENA_BASE 0x90000000ull
-#define ARENA_END LOW_LIMIT
-#define ARENA_PAGES ((ARENA_END - ARENA_BASE) / PAGE)
+/* the arena: 0x90000000 to 4 GB where it is free, else the largest free
+range above the image of at least ARENA_MINIMUM (the system lays out each
+process at random: its own regions are sometimes in the way); at most
+ARENA_MAXIMUM. Never below 0x80000000: the platform layer's
+PLATFORM_PHYSICAL_TO_VIRTUAL sets that bit in the pointers it is given, the
+arena's among them */
+#define ARENA_PREFERRED 0x90000000ull
+#define ARENA_MAXIMUM (LOW_LIMIT - ARENA_PREFERRED)
+#define ARENA_MINIMUM 0x20000000ull
+#define ARENA_LOWEST IMAGE_END
 #define CHUNK 0x200000ull
-#define ARENA_CHUNKS ((ARENA_END - ARENA_BASE) / CHUNK)
+#define ARENA_MAXIMUM_PAGES (ARENA_MAXIMUM / PAGE)
+#define ARENA_MAXIMUM_CHUNKS (ARENA_MAXIMUM / CHUNK)
+#define ARENA_BASE arena_base
+#define ARENA_END arena_end
+#define ARENA_PAGES ((arena_end - arena_base) / PAGE)
 
 /* the guest's (Linux's) mmap arguments */
 #define GUEST_PROT_READ 0x1
@@ -55,8 +66,9 @@ its upgraded size */
 #define GUEST_MAP_FIXED_NOREPLACE 0x100000
 
 static Mutex memory_lock;
-static uint64_t arena_used[ARENA_PAGES / 64];
-static uint8_t arena_chunk_committed[ARENA_CHUNKS];
+static uint64_t arena_base = ARENA_PREFERRED, arena_end = LOW_LIMIT;
+static uint64_t arena_used[ARENA_MAXIMUM_PAGES / 64];
+static uint8_t arena_chunk_committed[ARENA_MAXIMUM_CHUNKS];
 static uint64_t arena_hint;
 static int custom_edition_committed;
 
@@ -184,7 +196,11 @@ static const char *check_free(uint64_t base, uint64_t end, const char *what)
 		svcGetInfo(&start, regions[index][0], CUR_PROCESS_HANDLE, 0);
 		svcGetInfo(&size, regions[index][1], CUR_PROCESS_HANDLE, 0);
 		if (start < end && base < start + size)
+		{
+			host_logf(HOST_LOG_WARN, "%s: the system's region %u is at %010llx-%010llx", what, index,
+				(unsigned long long)start, (unsigned long long)(start + size));
 			goto taken;
+		}
 	}
 	while (address < end)
 	{
@@ -192,7 +208,11 @@ static const char *check_free(uint64_t base, uint64_t end, const char *what)
 		u32 page_info;
 
 		if (R_FAILED(svcQueryMemory(&memory, &page_info, address)) || memory.type != MemType_Unmapped)
+		{
+			host_logf(HOST_LOG_WARN, "%s: memory of type 0x%x at %010llx-%010llx", what, memory.type,
+				(unsigned long long)memory.addr, (unsigned long long)(memory.addr + memory.size));
 			goto taken;
+		}
 		address = memory.addr + memory.size;
 	}
 	return NULL;
@@ -203,6 +223,85 @@ taken:
 		"Close the game you started the Homebrew Menu from, and start it again.",
 		what, (unsigned long long)base, (unsigned long long)end);
 	return reason;
+}
+
+/* the system's own regions (heap, alias, stack): unmapped, yet not free */
+static int in_system_region(uint64_t base, uint64_t end, uint64_t *region_end)
+{
+	static const InfoType regions[][2] = {
+		{InfoType_HeapRegionAddress, InfoType_HeapRegionSize},
+		{InfoType_AliasRegionAddress, InfoType_AliasRegionSize},
+		{InfoType_StackRegionAddress, InfoType_StackRegionSize},
+	};
+	unsigned index;
+
+	for (index = 0; index < sizeof(regions) / sizeof(*regions); index++)
+	{
+		u64 start = 0, size = 0;
+
+		svcGetInfo(&start, regions[index][0], CUR_PROCESS_HANDLE, 0);
+		svcGetInfo(&size, regions[index][1], CUR_PROCESS_HANDLE, 0);
+		if (size && start < end && base < start + size)
+		{
+			*region_end = start + size;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* the arena's range: the preferred one if free, else the largest free run
+from ARENA_LOWEST to 4 GB, by chunks, outside the system's regions; 0 if
+none is ARENA_MINIMUM */
+static int arena_choose(void)
+{
+	uint64_t address = ARENA_LOWEST, best_base = 0, best_size = 0, run_base = 0;
+	int in_run = 0;
+
+	if (!check_free(ARENA_PREFERRED, LOW_LIMIT, "other memory"))
+		return 1;
+	while (address < LOW_LIMIT)
+	{
+		MemoryInfo memory;
+		u32 page_info;
+		uint64_t next, region_end;
+		int usable;
+
+		if (R_FAILED(svcQueryMemory(&memory, &page_info, address)))
+			break;
+		/* (a chunk at a time: free, and none of the fixed ranges') */
+		next = address + CHUNK;
+		usable = memory.type == MemType_Unmapped && memory.addr + memory.size >= next &&
+			!(address < IMAGE_END && WINDOW_BASE < next) &&
+			!(address < CUSTOM_EDITION_END && CUSTOM_EDITION_BASE < next) &&
+			!in_system_region(address, next, &region_end);
+		if (usable && !in_run)
+		{
+			run_base = address;
+			in_run = 1;
+		}
+		if ((!usable || next >= LOW_LIMIT) && in_run)
+		{
+			uint64_t run_end = usable ? next : address;
+
+			if (run_end - run_base > best_size)
+			{
+				best_base = run_base;
+				best_size = run_end - run_base;
+			}
+			in_run = 0;
+		}
+		address = next;
+	}
+	if (best_size < ARENA_MINIMUM)
+		return 0;
+	if (best_size > ARENA_MAXIMUM)
+		best_size = ARENA_MAXIMUM;
+	arena_base = best_base;
+	arena_end = best_base + best_size;
+	host_logf(HOST_LOG_WARN, "the other memory at %08llx-%08llx, 0x90000000 being in use this time",
+		(unsigned long long)arena_base, (unsigned long long)arena_end);
+	return 1;
 }
 
 const char *host_memory_initialize(void)
@@ -220,9 +319,10 @@ const char *host_memory_initialize(void)
 			"(hbmenu and hbloader).";
 	if ((reason = check_free(WINDOW_BASE, WINDOW_END, "Xbox memory")) ||
 		(reason = check_free(IMAGE_BASE, IMAGE_END, "program")) ||
-		(reason = check_free(CUSTOM_EDITION_BASE, CUSTOM_EDITION_END, "Custom Edition maps")) ||
-		(reason = check_free(ARENA_BASE, ARENA_END, "other memory")))
+		(reason = check_free(CUSTOM_EDITION_BASE, CUSTOM_EDITION_END, "Custom Edition maps")))
 		return reason;
+	if (!arena_choose())
+		return check_free(ARENA_PREFERRED, LOW_LIMIT, "other memory");
 	if (commit(WINDOW_BASE, WINDOW_END - WINDOW_BASE, NULL, 0, Perm_Rw) != 0)
 		return "There is not enough memory for the game. Close other programs and try again.";
 	host_logf(HOST_LOG_INFO, "Xbox window %08llx-%08llx committed", (unsigned long long)WINDOW_BASE,
