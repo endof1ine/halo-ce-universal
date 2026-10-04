@@ -398,6 +398,114 @@ static void decode_level(const struct xgpu_texture_description *description, uns
 	}
 }
 
+#ifdef HALO_SWITCH
+/* ---------- the formats kept at their own size
+
+The 16- and 8-bit formats (the maps' lightmaps are R5G6B5; effects and the
+HUD's use A8, L8 and A8L8) uploaded as they are rather than expanded to 32
+bits: half the memory or a quarter of it, and less to upload. A texture
+swizzle reads them as the Xbox does; A1R5G5B5's bits are not ES's 5551's,
+so its texels are moved within their 16 bits. */
+
+struct native_format
+{
+	GLenum internal, format, type;
+	unsigned char bytes;
+	GLint swizzle[4];
+};
+
+static BOOL native_format(unsigned char kind, struct native_format *native)
+{
+	static const struct native_format r5g6b5 = { GL_RGB565, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, 2,
+		{ GL_RED, GL_GREEN, GL_BLUE, GL_ONE } };
+	/* (ES's 4444 has red at the top, where the Xbox's alpha is) */
+	static const struct native_format a4r4g4b4 = { GL_RGBA4, GL_RGBA, GL_UNSIGNED_SHORT_4_4_4_4, 2,
+		{ GL_GREEN, GL_BLUE, GL_ALPHA, GL_RED } };
+	static const struct native_format a1r5g5b5 = { GL_RGB5_A1, GL_RGBA, GL_UNSIGNED_SHORT_5_5_5_1, 2,
+		{ GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA } };
+	static const struct native_format l8 = { GL_R8, GL_RED, GL_UNSIGNED_BYTE, 1, { GL_RED, GL_RED, GL_RED, GL_ONE } };
+	static const struct native_format al8 = { GL_R8, GL_RED, GL_UNSIGNED_BYTE, 1, { GL_RED, GL_RED, GL_RED, GL_RED } };
+	static const struct native_format a8 = { GL_R8, GL_RED, GL_UNSIGNED_BYTE, 1, { GL_ONE, GL_ONE, GL_ONE, GL_RED } };
+	static const struct native_format a8l8 = { GL_RG8, GL_RG, GL_UNSIGNED_BYTE, 2,
+		{ GL_RED, GL_RED, GL_RED, GL_GREEN } };
+
+	switch (kind)
+	{
+	case _texel_r5g6b5: *native = r5g6b5; return TRUE;
+	case _texel_a4r4g4b4: *native = a4r4g4b4; return TRUE;
+	case _texel_a1r5g5b5: case _texel_x1r5g5b5: *native = a1r5g5b5; return TRUE;
+	case _texel_l8: *native = l8; return TRUE;
+	case _texel_al8: *native = al8; return TRUE;
+	case _texel_a8: *native = a8; return TRUE;
+	case _texel_a8l8: *native = a8l8; return TRUE;
+	default: return FALSE;
+	}
+}
+
+static void native_texel(unsigned char kind, const unsigned char *source, unsigned char *destination,
+	unsigned long bytes)
+{
+	if (kind == _texel_a1r5g5b5 || kind == _texel_x1r5g5b5)
+	{
+		unsigned long value = source[0] | ((unsigned long)source[1] << 8);
+		unsigned long alpha = kind == _texel_x1r5g5b5 || (value & 0x8000) ? 1 : 0;
+		/* (ARGB 1555 to RGBA 5551: the colour up a bit, the alpha below) */
+		unsigned long packed = ((value & 0x7fff) << 1) | alpha;
+
+		destination[0] = (unsigned char)packed;
+		destination[1] = (unsigned char)(packed >> 8);
+		return;
+	}
+	memcpy(destination, source, bytes);
+}
+
+/* one level (or 3D slice set) of a texture in a native format, in rows */
+static void decode_level_native(const struct xgpu_texture_description *description, unsigned long level,
+	const unsigned char *source, unsigned long bytes, unsigned char *destination)
+{
+	struct format_information information = format_information(description->format);
+	unsigned long width = level_dimension(description->width, level);
+	unsigned long height = level_dimension(description->height, level);
+	unsigned long depth = level_dimension(description->depth, level);
+	unsigned long x, y, z;
+
+	if (description->linear)
+	{
+		for (y = 0; y < height; y++)
+		{
+			const unsigned char *row = source + y * description->pitch;
+
+			for (x = 0; x < width; x++)
+				native_texel(information.kind, row + x * bytes, destination + (y * width + x) * bytes, bytes);
+		}
+		return;
+	}
+	{
+		struct swizzle_masks masks = swizzle_masks(width, height, depth);
+		unsigned long *x_offsets = malloc(width * sizeof(unsigned long));
+
+		if (!x_offsets)
+			return;
+		for (x = 0; x < width; x++)
+			x_offsets[x] = spread(masks.x, x);
+		for (z = 0; z < depth; z++)
+		{
+			unsigned long z_offset = spread(masks.z, z);
+
+			for (y = 0; y < height; y++)
+			{
+				unsigned long y_offset = spread(masks.y, y) | z_offset;
+
+				for (x = 0; x < width; x++)
+					native_texel(information.kind, source + (x_offsets[x] | y_offset) * bytes,
+						destination + ((z * height + y) * width + x) * bytes, bytes);
+			}
+		}
+		free(x_offsets);
+	}
+}
+#endif
+
 #ifdef HALO_GUEST
 /* ---------- DXT decoding, for ES drivers without S3TC (Mali) */
 
@@ -585,18 +693,44 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 	BOOL decode_compressed = FALSE;
 	unsigned long *converted;
 	unsigned long face, level;
+#ifdef HALO_SWITCH
+	struct native_format native;
+	BOOL kept = !description->compressed && native_format(information.kind, &native);
+	unsigned char *native_texels = kept ? malloc(largest * native.bytes) : NULL;
+
+	if (kept && !native_texels)
+		kept = FALSE;
+#endif
 
 #ifdef HALO_GUEST
 	decode_compressed = description->compressed && !xgpu_capabilities.s3tc;
 #endif
 	converted = description->compressed && !decode_compressed ? NULL : malloc(largest * sizeof(unsigned long));
+#ifdef HALO_SWITCH
+	if (kept)
+	{
+		free(converted);
+		converted = NULL;
+	}
+#endif
 	glBindTexture(target, texture);
 	xgpu_gl_state_forget_textures();
 #ifdef HALO_GUEST
 	/* converted texels are BGRA in memory (32-bit ARGB words); ES takes
-	RGBA */
+	RGBA (all four set: a texture uploaded again may have had others) */
 	glTexParameteri(target, GL_TEXTURE_SWIZZLE_R, converted ? GL_BLUE : GL_RED);
+	glTexParameteri(target, GL_TEXTURE_SWIZZLE_G, GL_GREEN);
 	glTexParameteri(target, GL_TEXTURE_SWIZZLE_B, converted ? GL_RED : GL_BLUE);
+	glTexParameteri(target, GL_TEXTURE_SWIZZLE_A, GL_ALPHA);
+#endif
+#ifdef HALO_SWITCH
+	if (kept)
+	{
+		glTexParameteri(target, GL_TEXTURE_SWIZZLE_R, native.swizzle[0]);
+		glTexParameteri(target, GL_TEXTURE_SWIZZLE_G, native.swizzle[1]);
+		glTexParameteri(target, GL_TEXTURE_SWIZZLE_B, native.swizzle[2]);
+		glTexParameteri(target, GL_TEXTURE_SWIZZLE_A, native.swizzle[3]);
+	}
 #endif
 	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 	glTexParameteri(target, GL_TEXTURE_BASE_LEVEL, 0);
@@ -612,6 +746,19 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 			GLsizei height = (GLsizei)level_dimension(description->height, level);
 			GLsizei depth = (GLsizei)level_dimension(description->depth, level);
 
+#ifdef HALO_SWITCH
+			if (kept)
+			{
+				decode_level_native(description, level, source, native.bytes, native_texels);
+				if (target == GL_TEXTURE_3D)
+					glTexImage3D(image_target, (GLint)level, (GLint)native.internal, width, height, depth, 0,
+						native.format, native.type, native_texels);
+				else
+					glTexImage2D(image_target, (GLint)level, (GLint)native.internal, width, height, 0, native.format,
+						native.type, native_texels);
+				continue;
+			}
+#endif
 			if (description->compressed && !decode_compressed)
 			{
 				if (target == GL_TEXTURE_3D)
@@ -638,6 +785,9 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 		}
 	}
 	free(converted);
+#ifdef HALO_SWITCH
+	free(native_texels);
+#endif
 	texture_dump(target, description);
 }
 
