@@ -382,6 +382,11 @@ int main(int argc, char *argv[])
 	environment_set(environment, "HALO_DISPLAY_WIDTH", "852");
 	time_zone(zone, sizeof(zone));
 	environment_set(environment, "TZ", zone);
+	/* gyro aiming moves the platform layer's mouse look, which the game
+	takes for a mouse: magnetism stays, as with the stick, unless
+	input.gyro_aim_assist = false */
+	if (host_config_boolean("input.gyro_aim") && host_config_boolean_default("input.gyro_aim_assist", 1))
+		environment_set(environment, "HALO_MOUSE_AIM_ASSIST", "true");
 	boot = make_boot(environment);
 	free(environment);
 

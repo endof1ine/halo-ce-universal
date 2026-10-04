@@ -19,7 +19,8 @@ Gyro aiming (input.gyro_aim = true in config.toml; off unless set): player
 1's controller turned turns the view as much (input.gyro_sensitivity, 1 by
 default; input.gyro_invert_x and _y), through the platform layer's mouse
 look (xinput_sdl.c), so the stick's acceleration does not apply to it. The
-stick aims as well.
+stick aims as well. Small turns are smoothed over a few polls, which steadies
+a Joy-Con's jitter while aiming finely; larger ones go through at once.
 */
 
 #include "host.h"
@@ -43,6 +44,10 @@ motion (xinput_sdl.c), and below what the controller is held still */
 #define MOUSE_LOOK_RADIANS 0.0022f
 #define GYRO_DEADZONE 0.004f
 #define GYRO_STYLES 3
+/* turns a second below which a turn is all smoothed, above which none of it */
+#define GYRO_SMOOTH_BELOW 0.01f
+#define GYRO_SMOOTH_ABOVE 0.04f
+#define GYRO_SMOOTH_SAMPLES 4
 
 static struct
 {
@@ -53,7 +58,25 @@ static struct
 	HidSixAxisSensorHandle handles[GYRO_STYLES][2];
 	int started[GYRO_STYLES];
 	uint64_t last_tick;
+	float recent_yaw[GYRO_SMOOTH_SAMPLES], recent_pitch[GYRO_SMOOTH_SAMPLES];
+	unsigned recent;
 } gyro;
+
+/* soft smoothing: a small turn rate is mostly the average of the last few,
+a large one itself */
+static float gyro_smooth(float value, float *recent)
+{
+	float average = 0.0f, magnitude = fabsf(value), direct;
+	unsigned index;
+
+	recent[gyro.recent % GYRO_SMOOTH_SAMPLES] = value;
+	for (index = 0; index < GYRO_SMOOTH_SAMPLES; index++)
+		average += recent[index];
+	average /= GYRO_SMOOTH_SAMPLES;
+	direct = (magnitude - GYRO_SMOOTH_BELOW) / (GYRO_SMOOTH_ABOVE - GYRO_SMOOTH_BELOW);
+	direct = direct < 0.0f ? 0.0f : direct > 1.0f ? 1.0f : direct;
+	return direct * value + (1.0f - direct) * average;
+}
 static int pad_connected[PLAYERS];
 static Mutex input_lock;
 
@@ -158,6 +181,9 @@ static void gyro_update(void)
 	vertical axis (yaw), x across it (pitch) */
 	yaw = fabsf(state.angular_velocity.z) < GYRO_DEADZONE ? 0.0f : state.angular_velocity.z;
 	pitch = fabsf(state.angular_velocity.x) < GYRO_DEADZONE ? 0.0f : state.angular_velocity.x;
+	yaw = gyro_smooth(yaw, gyro.recent_yaw);
+	pitch = gyro_smooth(pitch, gyro.recent_pitch);
+	gyro.recent++;
 	if (yaw == 0.0f && pitch == 0.0f)
 		return;
 	host_sdl_queue_mouse_motion(-yaw * 6.2831853f * seconds * gyro.sensitivity_x / MOUSE_LOOK_RADIANS,
