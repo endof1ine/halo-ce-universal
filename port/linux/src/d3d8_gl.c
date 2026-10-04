@@ -3477,9 +3477,14 @@ only when it is first drawn from or after the game has written it: pages
 are write-protected once uploaded, as cached textures are (memory_watch.c).
 Pages the game rewrites frame after frame (dynamic vertices) would fault on
 every write; after a few such rewrites a page counts as volatile for a
-while, and draws that use it stream their data as before. */
+while, and draws that use it stream their data as before.
+
+A segment's buffer also holds the start of the next segment (the overlap),
+so that a vertex or index buffer crossing into it is still one range of one
+GL buffer; pages there are uploaded to both buffers. */
 
 #define MIRROR_SEGMENT_SIZE 0x400000UL
+#define MIRROR_OVERLAP 0x80000UL
 #define MIRROR_SEGMENT_COUNT (PLATFORM_CONTIGUOUS_SIZE / MIRROR_SEGMENT_SIZE)
 #define MIRROR_PAGE_SIZE 0x1000UL
 #define MIRROR_PAGE_COUNT (PLATFORM_CONTIGUOUS_SIZE / MIRROR_PAGE_SIZE)
@@ -3507,11 +3512,38 @@ static struct
 	unsigned long rewritten_frame[MIRROR_PAGE_COUNT];
 } mirror;
 
+/* writes [address, address + size) of the window at offset in a segment's
+buffer, made when first needed */
+static void mirror_buffer_write(unsigned long segment, unsigned long offset, unsigned long address,
+	unsigned long size, BOOL unused)
+{
+	if (!mirror.buffers[segment])
+	{
+		glGenBuffers(1, &mirror.buffers[segment]);
+		glBindBuffer(GL_COPY_WRITE_BUFFER, mirror.buffers[segment]);
+		glBufferData(GL_COPY_WRITE_BUFFER, MIRROR_SEGMENT_SIZE + MIRROR_OVERLAP, NULL, GL_DYNAMIC_DRAW);
+	}
+	glBindBuffer(GL_COPY_WRITE_BUFFER, mirror.buffers[segment]);
+#ifdef HALO_GUEST
+	/* Mali copies the whole buffer for a glBufferSubData that queued
+	draws might read (see STREAM_BUFFER_RING); unused pages can be
+	written without waiting for them */
+	if (unused)
+	{
+		host_gl_buffer_write(GL_COPY_WRITE_BUFFER, (unsigned int)offset, (unsigned int)size, (const void *)address);
+		return;
+	}
+#else
+	(void)unused;
+#endif
+	glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)offset, (GLsizeiptr)size, (const void *)address);
+}
+
 /* uploads the pages of [first, last) that are absent or stale; FALSE if one
 of them turns out to be volatile */
 static BOOL mirror_refresh(unsigned long first, unsigned long last)
 {
-	unsigned long page, run;
+	unsigned long page, run, piece_end;
 	BOOL volatile_page = FALSE;
 	unsigned char stale[256];
 	unsigned long count = last - first;
@@ -3551,7 +3583,6 @@ static BOOL mirror_refresh(unsigned long first, unsigned long last)
 		return FALSE;
 	for (page = first; page < last; page = run)
 	{
-		unsigned long segment = page * MIRROR_PAGE_SIZE / MIRROR_SEGMENT_SIZE;
 		unsigned long address, size;
 		/* no queued draw can read pages uploaded for the first time */
 		BOOL unused = TRUE;
@@ -3583,29 +3614,25 @@ static BOOL mirror_refresh(unsigned long first, unsigned long last)
 				MIRROR_PAGE_SIZE);
 			mirror.state[page] = _mirror_page_present;
 		}
-		if (!mirror.buffers[segment])
+		/* (a segment at a time; a segment's start goes to the overlap of the
+		buffer before too) */
+		for (; address < PLATFORM_CONTIGUOUS_BASE + run * MIRROR_PAGE_SIZE; address = piece_end)
 		{
-			glGenBuffers(1, &mirror.buffers[segment]);
-			glBindBuffer(GL_COPY_WRITE_BUFFER, mirror.buffers[segment]);
-			glBufferData(GL_COPY_WRITE_BUFFER, MIRROR_SEGMENT_SIZE, NULL, GL_DYNAMIC_DRAW);
+			unsigned long relative = address - PLATFORM_CONTIGUOUS_BASE;
+			unsigned long segment = relative / MIRROR_SEGMENT_SIZE, offset = relative % MIRROR_SEGMENT_SIZE;
+			unsigned long run_end = PLATFORM_CONTIGUOUS_BASE + run * MIRROR_PAGE_SIZE;
+			unsigned long segment_end = PLATFORM_CONTIGUOUS_BASE + (segment + 1) * MIRROR_SEGMENT_SIZE;
+
+			piece_end = run_end < segment_end ? run_end : segment_end;
+			mirror_buffer_write(segment, offset, address, piece_end - address, unused);
+			if (segment && offset < MIRROR_OVERLAP)
+			{
+				unsigned long overlap_end = segment_end - MIRROR_SEGMENT_SIZE + MIRROR_OVERLAP;
+
+				mirror_buffer_write(segment - 1, MIRROR_SEGMENT_SIZE + offset, address,
+					(piece_end < overlap_end ? piece_end : overlap_end) - address, unused);
+			}
 		}
-		glBindBuffer(GL_COPY_WRITE_BUFFER, mirror.buffers[segment]);
-#ifdef HALO_GUEST
-		/* Mali copies the whole buffer for a glBufferSubData that queued
-		draws might read (see STREAM_BUFFER_RING); unused pages can be
-		written without waiting for them */
-		if (unused)
-		{
-			host_gl_buffer_write(GL_COPY_WRITE_BUFFER,
-				(unsigned int)(address - PLATFORM_CONTIGUOUS_BASE - segment * MIRROR_SEGMENT_SIZE),
-				(unsigned int)size, (const void *)address);
-			continue;
-		}
-#else
-		(void)unused;
-#endif
-		glBufferSubData(GL_COPY_WRITE_BUFFER, (GLintptr)(address - PLATFORM_CONTIGUOUS_BASE - segment * MIRROR_SEGMENT_SIZE),
-			(GLsizeiptr)size, (const void *)address);
 	}
 	return TRUE;
 }
@@ -3613,7 +3640,8 @@ static BOOL mirror_refresh(unsigned long first, unsigned long last)
 /* makes [address, address + size) current in the mirror, giving the buffer
 that holds it, the range's offset in that buffer and the newest upload
 generation of its pages (which changes whenever its contents do); FALSE if
-the range is outside the window, spans two segments or is volatile */
+the range is outside the window, runs past its segment's overlap or is
+volatile */
 static BOOL mirror_range(unsigned long address, unsigned long size, GLuint *buffer, unsigned long *offset,
 	unsigned long *generation)
 {
@@ -3624,7 +3652,7 @@ static BOOL mirror_range(unsigned long address, unsigned long size, GLuint *buff
 	if (!size || address < PLATFORM_CONTIGUOUS_BASE || start + size > PLATFORM_CONTIGUOUS_SIZE)
 		return FALSE;
 	segment = start / MIRROR_SEGMENT_SIZE;
-	if ((start + size - 1) / MIRROR_SEGMENT_SIZE != segment)
+	if (start + size > (segment + 1) * MIRROR_SEGMENT_SIZE + MIRROR_OVERLAP)
 		return FALSE;
 	first = start / MIRROR_PAGE_SIZE;
 	last = (start + size - 1) / MIRROR_PAGE_SIZE + 1;
