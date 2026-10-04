@@ -306,7 +306,12 @@ void host_gl_buffer_write_to(uint32_t buffer, uint32_t offset, uint32_t size, co
 		if (persistent[slot].buffer == buffer)
 		{
 			if (offset <= persistent[slot].size && size <= persistent[slot].size - offset)
+			{
 				memcpy(persistent[slot].mapping + offset, data, size);
+				/* (the Tegra's GPU does not see the CPU's caches: the copy
+				written through to memory) */
+				armDCacheFlush(persistent[slot].mapping + offset, size);
+			}
 			return;
 		}
 	}
