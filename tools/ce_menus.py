@@ -600,7 +600,8 @@ def main() -> None:
         for index, texts in port_settings.STRING_INSERTS.get(our_name(tag), []):
             strings = strings[:index] + texts + strings[index:]
         lines.append(f"\t<strings{attributes([('name', our_name(tag))])}>")
-        lines += [f"\t\t<string{attributes([('text', text)])}/>" for text in strings]
+        lines += [f"\t\t<string{attributes([('text', text), ('platform', platform)])}/>"
+                  for text, platform in port_settings.string_entries(our_name(tag), strings)]
         lines.append("\t</strings>")
     lines.append("</menus>")
     (CE / "strings.xml").write_text("\n".join(lines) + "\n")

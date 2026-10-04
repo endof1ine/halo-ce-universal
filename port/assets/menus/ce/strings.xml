@@ -1321,9 +1321,11 @@
 		<string text="Rename this profile.\n\n\nProfile:"/>
 		<string text="Choose the keys and mouse\nbuttons for each action.\n\nProfile:"/>
 		<string text="Set this profile's controller\nsensitivity and layouts.\n\nProfile:"/>
-		<string text="Adjust the mouse's sensitivity\nand aiming.\n\nProfile:"/>
+		<string text="Adjust the mouse's sensitivity\nand aiming.\n\nProfile:" platform="desktop android"/>
+		<string text="Aim by turning the controller,\nand how far it turns.\n\nProfile:" platform="switch"/>
 		<string text="Adjust the volume of the music\nand of everything else.\n\nProfile:"/>
-		<string text="Choose a window or the full\nscreen, the frame rate and more.\n\nProfile:"/>
+		<string text="Choose a window or the full\nscreen, the frame rate and more.\n\nProfile:" platform="desktop android"/>
+		<string text="Choose the resolution, the\nframe rate and more.\n\nProfile:" platform="switch"/>
 		<string text="Internet play, updates and the\nmultiplayer HUD.\n\nProfile:"/>
 		<string text="Change the current profile's\nfree-for-all multiplayer color.\n\nProfile:"/>
 		<string text="Halo: Combat Evolved, the Xbox\ngame, on this computer.\n\nProfile:"/>
@@ -1332,7 +1334,8 @@
 		<string text="CHANGE NAME"/>
 		<string text="CONTROLS SETUP"/>
 		<string text="GAMEPADS"/>
-		<string text="MOUSE SETUP"/>
+		<string text="MOUSE SETUP" platform="desktop android"/>
+		<string text="GYRO SETUP" platform="switch"/>
 		<string text="AUDIO SETUP"/>
 		<string text="VIDEO SETUP"/>
 		<string text="CHANGE COLOR"/>

@@ -100,10 +100,20 @@ On player 1's controller, hold these buttons together for one second:
 
 ## Settings
 
-The settings are in `/switch/halo/config.toml`. At the first start, the game
-writes the file with the default values. The settings are the settings of
-Linux, without the window, the mouse and the paths (refer to
-[port/linux/README.md](../linux/README.md#settings)). These settings are
+Most settings are in the game's menus: Settings, Profiles, then a profile.
+Changes take effect when you select OK, except Background Shaders (at the
+next start).
+
+| Menu | Switch settings |
+| --- | --- |
+| Video Setup | Handheld Resolution, Docked Resolution, 30 FPS Lock, Background Shaders |
+| Gamepads | Face Buttons |
+| Gyro Setup (Mouse Setup on a computer) | Gyro Aiming, Gyro Sensitivity, Invert Horizontal, Invert Vertical, Gyro Aim Assist |
+
+The menus write the settings to `/switch/halo/config.toml`. At the first
+start, the game writes the file with the default values. The settings are
+the settings of Linux, without the window, the mouse and the paths (refer
+to [port/linux/README.md](../linux/README.md#settings)). These settings are
 only for the Switch:
 
 | Setting | Function |

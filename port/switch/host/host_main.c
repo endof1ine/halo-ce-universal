@@ -163,21 +163,47 @@ void host_exit(int code)
 
 /* ---------- settings */
 
+/* config.toml as last read: at the first setting asked for, and again each
+time the game's settings menus write it (host_config_changed) */
+static Mutex config_lock;
+static toml_result_t config;
+static int config_loaded;
+
+static void config_load(void)
+{
+	if (config_loaded)
+		toml_free(config);
+	config = toml_parse_file_ex(HOST_DATA_ROOT "/config.toml");
+	config_loaded = 1;
+}
+
 int host_config_boolean_default(const char *key, int missing)
 {
-	static toml_result_t config;
-	static int loaded;
 	toml_datum_t value;
+	int result = missing;
 
-	if (!loaded)
+	mutexLock(&config_lock);
+	if (!config_loaded)
+		config_load();
+	if (config.ok)
 	{
-		config = toml_parse_file_ex(HOST_DATA_ROOT "/config.toml");
-		loaded = 1;
+		value = toml_seek(config.toptab, key);
+		if (value.type == TOML_BOOLEAN)
+			result = value.u.boolean;
 	}
-	if (!config.ok)
-		return missing;
-	value = toml_seek(config.toptab, key);
-	return value.type == TOML_BOOLEAN ? value.u.boolean : missing;
+	mutexUnlock(&config_lock);
+	return result;
+}
+
+/* the guest wrote a setting (port_config.c's config_write): the input's are
+taken up now; the swap interval's when the guest sets it again
+(platform_display_apply) */
+void host_config_changed(void)
+{
+	mutexLock(&config_lock);
+	config_load();
+	mutexUnlock(&config_lock);
+	host_input_settings_read();
 }
 
 int host_config_boolean(const char *key)
@@ -382,11 +408,6 @@ int main(int argc, char *argv[])
 	environment_set(environment, "HALO_DISPLAY_WIDTH", "852");
 	time_zone(zone, sizeof(zone));
 	environment_set(environment, "TZ", zone);
-	/* gyro aiming moves the platform layer's mouse look, which the game
-	takes for a mouse: magnetism stays, as with the stick, unless
-	input.gyro_aim_assist = false */
-	if (host_config_boolean("input.gyro_aim") && host_config_boolean_default("input.gyro_aim_assist", 1))
-		environment_set(environment, "HALO_MOUSE_AIM_ASSIST", "true");
 	boot = make_boot(environment);
 	free(environment);
 

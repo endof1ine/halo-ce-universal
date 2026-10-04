@@ -58,3 +58,6 @@ host_bink_open
 host_bink_decode
 host_bink_copy
 host_bink_close
+
+# settings (the Switch's host reads some of config.toml itself)
+host_config_changed

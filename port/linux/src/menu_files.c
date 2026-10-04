@@ -339,28 +339,49 @@ static long current_line(struct reader *reader)
 	return (long)XML_GetCurrentLineNumber(reader->parser);
 }
 
-/* whether the element is for this platform (its platform attribute) */
+/* the names a platform attribute can have, and this build's */
+static const char *const platform_names[] = { "desktop", "android", "switch" };
+#if defined(HALO_SWITCH)
+#define THIS_PLATFORM "switch"
+#elif defined(HALO_GUEST)
+#define THIS_PLATFORM "android"
+#else
+#define THIS_PLATFORM "desktop"
+#endif
+
+/* whether the element is for this platform: its platform attribute names
+those it is for, between spaces ("desktop android") */
 static int for_this_platform(struct reader *reader, const XML_Char **attributes)
 {
 	int index;
 
 	for (index = 0; attributes[index]; index += 2)
 	{
-		if (!strcmp(attributes[index], "platform"))
-		{
-			const char *platform = attributes[index + 1];
+		const char *name = attributes[index + 1];
+		int found = 0;
 
-			if (strcmp(platform, "desktop") && strcmp(platform, "android"))
+		if (strcmp(attributes[index], "platform"))
+			continue;
+		for (name += strspn(name, " "); *name; name += strspn(name, " "))
+		{
+			size_t length = strcspn(name, " "), known;
+
+			for (known = 0; known < sizeof(platform_names) / sizeof(platform_names[0]); known++)
 			{
-				reader_error(reader, "platform=\"%s\" is not \"desktop\" or \"android\"", platform);
+				if (strlen(platform_names[known]) == length && !strncmp(name, platform_names[known], length))
+					break;
+			}
+			if (known == sizeof(platform_names) / sizeof(platform_names[0]))
+			{
+				reader_error(reader, "platform=\"%s\" names one not \"desktop\", \"android\" or \"switch\"",
+					attributes[index + 1]);
 				return 1;
 			}
-#ifdef HALO_GUEST
-			return !strcmp(platform, "android");
-#else
-			return !strcmp(platform, "desktop");
-#endif
+			if (!strcmp(platform_names[known], THIS_PLATFORM))
+				found = 1;
+			name += length;
 		}
+		return found;
 	}
 	return 1;
 }

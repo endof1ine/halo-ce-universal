@@ -43,6 +43,8 @@ int host_config_boolean(const char *key);
 int host_config_boolean_default(const char *key, int missing);
 /* a number setting of config.toml (read from the file at each call) */
 double host_config_real(const char *key, double missing);
+/* config.toml read again, after the guest wrote it */
+void host_config_changed(void);
 /* the sampling profiler of the main thread (host_profile.c) */
 void host_profile_start(void);
 
@@ -129,6 +131,8 @@ void host_run_guest_main(uint32_t boot) __attribute__((noreturn));
 /* the applet's messages, once a frame from the event pump */
 void host_sdl_applet_update(void);
 void host_input_initialize(void);
+/* input.button_positions and the gyro's settings, from config.toml */
+void host_input_settings_read(void);
 /* polls the controllers; queues an SDL gamepad-added event for each new one */
 void host_input_update(void);
 void host_input_stop_rumble(void);

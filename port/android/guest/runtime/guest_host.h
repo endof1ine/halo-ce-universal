@@ -118,4 +118,11 @@ int host_bink_decode(unsigned int movie);
 void host_bink_copy(unsigned int movie, void *destination, int pitch, unsigned int height);
 void host_bink_close(unsigned int movie);
 
+/* ---------- settings
+
+config.toml written (port_config.c's config_write): the Switch's host reads
+the settings it uses itself again. */
+
+void host_config_changed(void);
+
 #endif

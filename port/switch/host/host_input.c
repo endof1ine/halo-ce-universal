@@ -162,27 +162,35 @@ static void gesture_update(void)
 		host_sdl_invite_keyboard();
 }
 
+void host_input_settings_read(void)
+{
+	int positions = host_config_boolean("input.button_positions");
+	int enabled = host_config_boolean("input.gyro_aim");
+	float sensitivity = (float)host_config_real("input.gyro_sensitivity", 1.0);
+	int invert_x = host_config_boolean("input.gyro_invert_x"), invert_y = host_config_boolean("input.gyro_invert_y");
+
+	if (sensitivity <= 0.0f)
+		sensitivity = 1.0f;
+	mutexLock(&input_lock);
+	by_position = positions;
+	gyro.enabled = enabled;
+	gyro.sensitivity_x = invert_x ? -sensitivity : sensitivity;
+	gyro.sensitivity_y = invert_y ? -sensitivity : sensitivity;
+	mutexUnlock(&input_lock);
+	host_logf(HOST_LOG_INFO, "buttons by %s, gyro aiming %s (sensitivity %.2f)", positions ? "position" : "label",
+		enabled ? "on" : "off", sensitivity);
+}
+
 void host_input_initialize(void)
 {
 	int player;
 
 	mutexInit(&input_lock);
-	by_position = host_config_boolean("input.button_positions");
 	padConfigureInput(PLAYERS, HidNpadStyleSet_NpadStandard);
 	padInitialize(&pads[0], HidNpadIdType_No1, HidNpadIdType_Handheld);
 	for (player = 1; player < PLAYERS; player++)
 		padInitialize(&pads[player], (HidNpadIdType)(HidNpadIdType_No1 + player));
-	gyro.enabled = host_config_boolean("input.gyro_aim");
-	if (gyro.enabled)
-	{
-		float sensitivity = (float)host_config_real("input.gyro_sensitivity", 1.0);
-
-		if (sensitivity <= 0.0f)
-			sensitivity = 1.0f;
-		gyro.sensitivity_x = host_config_boolean("input.gyro_invert_x") ? -sensitivity : sensitivity;
-		gyro.sensitivity_y = host_config_boolean("input.gyro_invert_y") ? -sensitivity : sensitivity;
-		host_logf(HOST_LOG_INFO, "gyro aiming on, sensitivity %.2f", sensitivity);
-	}
+	host_input_settings_read();
 }
 
 /* the sensor of player 1's controller in its style, started the first time;

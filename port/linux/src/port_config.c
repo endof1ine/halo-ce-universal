@@ -360,7 +360,8 @@ static const struct config_setting config_settings[] =
 	{ "debug.sample_seconds", _config_real, "0.0", "HALO_SAMPLE", _environment_value, _platform_android,
 		"Log where every game thread is this often, in seconds (read by the\n"
 		"app, port/android/host/host_debug.c); 0 never." },
-	/* the Switch's host reads these itself (port/switch/host/host_input.c) */
+	/* the Switch's host reads these itself (port/switch/host/host_input.c),
+	again when the settings menus write one */
 	{ "input.button_positions", _config_boolean, "false", "HALO_BUTTON_POSITIONS", _environment_value,
 		_platform_switch,
 		"Map A, B, X and Y by position, as an Xbox controller's (the bottom face\n"
@@ -387,6 +388,11 @@ static const struct config_setting config_settings[] =
 };
 
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
+
+#ifdef HALO_SWITCH
+/* the host's (guest_host.h) */
+void host_config_changed(void);
+#endif
 
 #if defined(HALO_SWITCH)
 #define CONFIG_PLATFORM _platform_switch
@@ -1053,6 +1059,11 @@ int config_write(const char *name, const char *value)
 	pthread_mutex_unlock(&config_lock);
 	free(out.buffer);
 	free(text);
+#ifdef HALO_SWITCH
+	/* (the host reads some settings itself: the input's) */
+	if (succeeded)
+		host_config_changed();
+#endif
 	return succeeded;
 }
 

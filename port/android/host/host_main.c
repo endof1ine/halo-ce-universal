@@ -96,6 +96,11 @@ void host_android_path(int which, char *buffer, uint32_t size)
 	snprintf(buffer, size, "%s", which ? save_root : data_root);
 }
 
+/* (the Switch's host reads some settings itself; this one reads none) */
+void host_config_changed(void)
+{
+}
+
 static int directory_has_maps(const char *root)
 {
 	char path[600];

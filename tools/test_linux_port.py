@@ -227,7 +227,7 @@ def test_menus_are_well_formed():
             where = f"{path.name}: <{element.tag} {element.get('name', '')}>"
             assert element.tag in MENU_ATTRIBUTES, where
             assert set(element.attrib) <= MENU_ATTRIBUTES[element.tag], where
-            assert element.get("platform") in (None, "desktop", "android"), where
+            assert set((element.get("platform") or "desktop").split()) <= {"desktop", "android", "switch"}, where
             # (menu_files.c's whole numbers, which the tags keep in shorts,
             # its true/false attributes, and no text but whitespace outside
             # <string>s)
@@ -294,7 +294,7 @@ def test_menu_settings_exist():
     root = MENUS.parent.parent.parent
     config = (root / "port/linux/src/port_config.c").read_text()
     functions = (root / "port/linux/game/menu_functions.c").read_text()
-    known = set(re.findall(r'^\t\{ "([a-z_]+\.[a-z_]+)", _config_', config, re.M))
+    known = set(re.findall(r'^\t\{ "([a-z0-9_]+\.[a-z0-9_]+)", _config_', config, re.M))
     profile = set(re.findall(r'\{ "(profile\.[a-z_]+)", \d', functions))
     for path in (MENUS / "ce").glob("*.xml"):
         for setting in re.findall(r'setting="([^"]+)"', path.read_text()):

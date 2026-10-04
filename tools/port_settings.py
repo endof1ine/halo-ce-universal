@@ -11,8 +11,14 @@ port/linux/game/menu_functions.c: "port setting load" shows its value,
 "port settings save" (OK) writes those changed and applies them, "port
 settings defaults" shows the defaults. Controls Setup binds the keyboard and
 mouse's controls, by the functions the PC version names for it.
+
+A row can be for some platforms only (menu_files.c's platform attribute:
+"desktop", "android", "switch", or several between spaces); each platform's
+rows are laid out one after another, with no gaps for the others'. On the
+Switch, Mouse Setup is Gyro Setup: the gyro turns the view as a mouse does.
 """
 
+from collections import defaultdict
 from xml.sax.saxutils import quoteattr
 
 PE = "main_menu/settings_select/player_setup/player_profile_edit"
@@ -20,10 +26,13 @@ YES_NO = [("YES", "true"), ("NO", "false")]
 ON_OFF = [("ON", "true"), ("OFF", "false")]
 SENSITIVITIES = [(f"{value:g}", f"{value:g}") for value in (0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4)]
 VOLUMES = [(str(step), f"{step / 10:g}") for step in range(11)]
+PLATFORMS = ("desktop", "android", "switch")
+NOT_SWITCH = "desktop android"
 
 # each screen: its folder below PE, its screen's widget (the name the profile
-# menu opens), its header (widget, bitmap), the row spacing, and its rows:
-# (label, setting, [(shown, value)], help, platform)
+# menu opens), its header (widget, bitmap), the Switch's own header if it has
+# one, the row spacing, and its rows: (label, setting, [(shown, value)], help,
+# platform: None for all)
 SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
@@ -37,8 +46,17 @@ SCREENS = {
             ("WINDOW SIZE:", "display.window_scale",
              [("640 x 480", "1"), ("1280 x 960", "2"), ("1920 x 1440", "3"), ("2560 x 1920", "4")],
              "The window's size when windowed (its edges can\nalso be dragged).", "desktop"),
+            ("HANDHELD RESOLUTION:", "display.render_scale",
+             [("480 LINES", "1"), ("600 LINES", "1.25"), ("720 LINES", "1.5")],
+             "The lines drawn in handheld mode: 720 is the\nscreen's own, sharper and more work.", "switch"),
+            ("DOCKED RESOLUTION:", "display.render_scale_docked",
+             [("480 LINES", "1"), ("720 LINES", "1.5"), ("960 LINES", "2"), ("1080 LINES", "2.25")],
+             "The lines drawn when docked: 1080 is the\ntelevision's own, sharper and more work.", "switch"),
             ("V-SYNC:", "display.vsync", ON_OFF,
              "Wait for the display between frames, so that the\npicture never tears.", None),
+            ("30 FPS LOCK:", "display.lock_30fps", ON_OFF,
+             "With V-Sync on, 30 frames a second: steadier than\na rate that varies, and lighter on the battery.",
+             "switch"),
             ("FRAME RATE LIMIT:", "display.max_fps",
              [("AUTO", "0"), ("30", "30"), ("60", "60"), ("120", "120"), ("144", "144"), ("165", "165"),
               ("240", "240"), ("NONE", "-1")],
@@ -51,21 +69,36 @@ SCREENS = {
              "Draw the HUD from the high-res redraws; off\ndraws the game's own pictures.", None),
             ("HIGH-RES TEXT:", "display.high_res_text", ON_OFF,
              "Draw text and titles with high-res fonts; off\ndraws the game's own.", None),
+            ("BACKGROUND SHADERS:", "display.async_shaders", ON_OFF,
+             "Make new effects on other cores, so the game never\nstops for them. From the next start.",
+             "switch"),
         ],
     },
     "mouse_settings": {
         "screen": "mouse_settings_screen",
         "header": ("header_profile_mouse_settings", f"{PE}/mouse_settings/header_profile_mouse_settings"),
+        "switch_header": ("header_gyro_settings", f"{PE}/mouse_settings/header_gyro_settings"),
         "spacing": 30,
         "rows": [
             ("HORIZONTAL SENSITIVITY:", "input.mouse_sensitivity", SENSITIVITIES,
-             "How fast the view turns side to side for the\nmouse's movement.", None),
+             "How fast the view turns side to side for the\nmouse's movement.", NOT_SWITCH),
             ("VERTICAL SENSITIVITY:", "input.mouse_vertical_sensitivity", [("SAME", "0")] + SENSITIVITIES,
-             "How fast the view turns up and down; Same\nturns it as fast as side to side.", None),
+             "How fast the view turns up and down; Same\nturns it as fast as side to side.", NOT_SWITCH),
             ("INVERT VERTICAL AXIS:", "input.invert_mouse", YES_NO,
-             "Moving the mouse forward looks down.", None),
+             "Moving the mouse forward looks down.", NOT_SWITCH),
             ("AIM ASSIST:", "input.mouse_aim_assist", ON_OFF,
-             "Slow and drag the view along with a target while\naiming with the mouse, as with a controller.", None),
+             "Slow and drag the view along with a target while\naiming with the mouse, as with a controller.",
+             NOT_SWITCH),
+            ("GYRO AIMING:", "input.gyro_aim", ON_OFF,
+             "Aim by turning player 1's controller, as well as\nwith the right stick.", "switch"),
+            ("GYRO SENSITIVITY:", "input.gyro_sensitivity", SENSITIVITIES,
+             "How far the view turns for the controller's turn:\n1 turns it as far, 2 twice as far.", "switch"),
+            ("INVERT HORIZONTAL:", "input.gyro_invert_x", YES_NO,
+             "Turning the controller left turns the view right.", "switch"),
+            ("INVERT VERTICAL:", "input.gyro_invert_y", YES_NO,
+             "Tilting the controller up looks down.", "switch"),
+            ("GYRO AIM ASSIST:", "input.gyro_aim_assist", ON_OFF,
+             "Slow and drag the view along with a target while\naiming with the gyro, as with the stick.", "switch"),
         ],
     },
     "audio_settings": {
@@ -125,6 +158,8 @@ SCREENS = {
             ("STICK LAYOUT:", "profile.joystick_preset",
              [("DEFAULT", "0"), ("SOUTHPAW", "1"), ("LEGACY", "2"), ("LEGACY SOUTHPAW", "3")],
              "Which stick moves and which looks.", None),
+            ("FACE BUTTONS:", "input.button_positions", [("BY LABEL", "false"), ("BY POSITION", "true")],
+             "By label, A jumps; by position, the bottom button\njumps, as on an Xbox controller.", "switch"),
             ("VIBRATION:", "profile.vibration", ON_OFF, "Rumble the controller.", None),
             ("IN-GAME HELP:", "profile.ingame_help", ON_OFF, "Show the game's hints about its controls.", None),
         ],
@@ -150,6 +185,27 @@ STRING_OVERRIDES = {
         "Halo: Combat Evolved, the Xbox\\ngame, on this computer.\\n\\nProfile:",
     ],
 }
+
+# strings that differ by platform: a list's string (by its index, after
+# STRING_OVERRIDES) becomes one for each platform named (Mouse Setup is Gyro
+# Setup on the Switch, which has no window either)
+STRING_VARIANTS = {
+    f"{PE}/profile_edit_options": {3: [("MOUSE SETUP", NOT_SWITCH), ("GYRO SETUP", "switch")]},
+    f"{PE}/profile_edit_descriptions": {
+        3: [("Adjust the mouse's sensitivity\\nand aiming.\\n\\nProfile:", NOT_SWITCH),
+            ("Aim by turning the controller,\\nand how far it turns.\\n\\nProfile:", "switch")],
+        5: [("Choose a window or the full\\nscreen, the frame rate and more.\\n\\nProfile:", NOT_SWITCH),
+            ("Choose the resolution, the\\nframe rate and more.\\n\\nProfile:", "switch")],
+    },
+}
+
+
+def string_entries(name: str, strings: list) -> list:
+    """a list's strings as (text, platform) pairs, with STRING_VARIANTS"""
+    entries = [[(text, None)] for text in strings]
+    for index, variants in STRING_VARIANTS.get(name, {}).items():
+        entries[index] = variants
+    return [entry for group in entries for entry in group]
 
 
 def attributes(pairs: list) -> str:
@@ -178,21 +234,35 @@ def _screen(folder: str, spec: dict, rows: list, list_inputs: list, list_handler
     base = folder if folder.startswith("main_menu/") else f"{PE}/{folder}"
     header, header_bitmap = spec["header"]
     lines = []
+    headers = [(header, header_bitmap, NOT_SWITCH if "switch_header" in spec else None)]
+    if "switch_header" in spec:
+        headers.append((*spec["switch_header"], "switch"))
     lines += _widget(f"{base}/{spec['screen']}",
                      [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child pause_game"),
                       ("bitmap", "bitmaps/gradient")],
                      ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
-                      f'<child{attributes([("widget", f"{base}/{header}")])}/>',
+                      *[f'<child{attributes([("widget", f"{base}/{name}"), ("platform", platform)])}/>'
+                        for name, _, platform in headers],
                       f'<child{attributes([("widget", f"{base}/options_menu")])}/>'])
-    lines += _widget(f"{base}/{header}", [("controller", 1), ("left", 35), ("top", 11), ("width", 605), ("height", 59),
-                                          ("bitmap", header_bitmap)], [])
+    for name, bitmap, platform in headers:
+        lines += _widget(f"{base}/{name}", [("controller", 1), ("left", 35), ("top", 11), ("width", 605),
+                                            ("height", 59), ("bitmap", bitmap), ("platform", platform)], [])
     lines += _widget(f"{base}/help", [("type", "text"), ("controller", 1), ("left", 68),
                                       ("top", spec.get("help_top", 350)), ("width", 482),
                                       ("height", 60), ("string_list", f"{base}/help_strings"),
                                       ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
     children = [f'<data input="{name}"/>' for name in list_inputs] + list_handlers
-    for index, (row, platform) in enumerate(rows):
-        children.append(f'<child{attributes([("widget", row), ("x", 54), ("y", 73 + index * spec["spacing"]), ("platform", platform)])}/>')
+    # (each platform's rows one after another: a row placed differently on
+    # some is a child for each place)
+    placed = dict.fromkeys(PLATFORMS, 0)
+    for row, platform in rows:
+        places = defaultdict(list)
+        for name in platform.split() if platform else PLATFORMS:
+            places[placed[name]].append(name)
+            placed[name] += 1
+        for index, names in places.items():
+            shown = None if len(names) == len(PLATFORMS) else " ".join(names)
+            children.append(f'<child{attributes([("widget", row), ("x", 54), ("y", 73 + index * spec["spacing"]), ("platform", shown)])}/>')
     children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", 414)])}/>')
     lines += _widget(f"{base}/options_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
@@ -461,6 +531,7 @@ TITLES = {
     f"{MT}/join_game/header_direct_link": "DIRECT LINK",
     f"{MT}/lobby/header_lobby": "GAME LOBBY",
     f"{MT}/coop/header_player_2": "PLAYER 2 PROFILE",
+    f"{PE}/mouse_settings/header_gyro_settings": "GYRO SETTINGS",
 }
 
 

@@ -166,7 +166,12 @@ int halo_linux_mouse_aiming(short gamepad_index)
 	if (read_at != config_changes())
 	{
 		read_at = config_changes();
+#ifdef HALO_SWITCH
+		/* (the Switch's mouse look is the gyro's: port/switch/host/host_input.c) */
+		aim_assist = config_boolean("input.gyro_aim_assist");
+#else
 		aim_assist = config_boolean("input.mouse_aim_assist");
+#endif
 	}
 	if (aim_assist)
 		return FALSE;
