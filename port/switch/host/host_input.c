@@ -42,7 +42,11 @@ a Joy-Con's jitter while aiming finely; larger ones go through at once.
 #define RUMBLE_LOW_HZ 160.0f
 #define RUMBLE_HIGH_HZ 320.0f
 /* (the Xbox's motors at full strength are much gentler than HD rumble's) */
-#define RUMBLE_STRENGTH 0.6f
+#define RUMBLE_STRENGTH 0.35f
+/* the stick's travel counted as all of it: the Switch's sticks, a Joy-Con's
+most, stop short of their full range, and the game turns fastest only at
+full deflection */
+#define STICK_FULL 0.88f
 
 static PadState pads[PLAYERS];
 static int by_position;
@@ -414,26 +418,40 @@ static int clamp_axis(int value)
 	return value < -32768 ? -32768 : value > 32767 ? 32767 : value;
 }
 
+/* a stick's position (SDL's y downwards), STICK_FULL of its travel (by its
+distance from the centre, so diagonals alike) being all of it */
+static void stick_position(PadState *pad, int stick, int *x, int *y)
+{
+	HidAnalogStickState position = padGetStickPos(pad, (unsigned int)stick);
+	float fx = (float)position.x / STICK_FULL, fy = (float)-position.y / STICK_FULL;
+	float length = sqrtf(fx * fx + fy * fy);
+
+	if (length > 32767.0f)
+	{
+		fx *= 32767.0f / length;
+		fy *= 32767.0f / length;
+	}
+	*x = clamp_axis((int)fx);
+	*y = clamp_axis((int)fy);
+}
+
 int host_sdl_gamepad_axis(uint32_t gamepad, int axis)
 {
 	PadState *pad = pad_of(gamepad);
-	HidAnalogStickState stick;
+	int x, y;
 
 	if (!pad)
 		return 0;
 	switch (axis)
 	{
 	case SDL_GAMEPAD_AXIS_LEFTX:
-		return clamp_axis(padGetStickPos(pad, 0).x);
 	case SDL_GAMEPAD_AXIS_LEFTY:
-		/* (SDL's y grows downwards) */
-		stick = padGetStickPos(pad, 0);
-		return clamp_axis(-stick.y);
+		stick_position(pad, 0, &x, &y);
+		return axis == SDL_GAMEPAD_AXIS_LEFTX ? x : y;
 	case SDL_GAMEPAD_AXIS_RIGHTX:
-		return clamp_axis(padGetStickPos(pad, 1).x);
 	case SDL_GAMEPAD_AXIS_RIGHTY:
-		stick = padGetStickPos(pad, 1);
-		return clamp_axis(-stick.y);
+		stick_position(pad, 1, &x, &y);
+		return axis == SDL_GAMEPAD_AXIS_RIGHTX ? x : y;
 	case SDL_GAMEPAD_AXIS_LEFT_TRIGGER:
 		return (padGetButtons(pad) & HidNpadButton_ZL) ? 32767 : 0;
 	case SDL_GAMEPAD_AXIS_RIGHT_TRIGGER:
