@@ -18,6 +18,14 @@ threads, asynchronous procedure calls, time, memory and debug output.
 #include <time.h>
 #include <unistd.h>
 
+/* the clock of the handles' timed waits (win32_posix.c's condition
+variables measure theirs on the time of day) */
+#ifdef _WIN32
+#define WAIT_CLOCK CLOCK_REALTIME
+#else
+#define WAIT_CLOCK CLOCK_MONOTONIC
+#endif
+
 #define PLATFORM_HANDLE_SIGNATURE 0x686e646cUL /* 'hndl' */
 
 /* ---------- logging */
@@ -109,7 +117,20 @@ struct platform_handle *platform_handle_new(long type, void *data,
 	pthread_mutexattr_init(&attributes);
 	pthread_mutex_init(&handle->lock, &attributes);
 	pthread_mutexattr_destroy(&attributes);
+#ifdef _WIN32
 	pthread_cond_init(&handle->condition, NULL);
+#else
+	{
+		/* timed waits run on the monotonic clock: a change of the time of
+		day (the Switch sets it from the network) must not stretch them */
+		pthread_condattr_t condition_attributes;
+
+		pthread_condattr_init(&condition_attributes);
+		pthread_condattr_setclock(&condition_attributes, WAIT_CLOCK);
+		pthread_cond_init(&handle->condition, &condition_attributes);
+		pthread_condattr_destroy(&condition_attributes);
+	}
+#endif
 	return handle;
 }
 
@@ -210,7 +231,7 @@ long platform_run_apcs(void)
 
 static void deadline_from_milliseconds(DWORD milliseconds, struct timespec *deadline)
 {
-	clock_gettime(CLOCK_REALTIME, deadline);
+	clock_gettime(WAIT_CLOCK, deadline);
 	deadline->tv_sec += milliseconds / 1000;
 	deadline->tv_nsec += (long)(milliseconds % 1000) * 1000000L;
 	if (deadline->tv_nsec >= 1000000000L)
@@ -384,24 +405,28 @@ static pthread_mutex_t *critical_section_mutex(PRTL_CRITICAL_SECTION section)
 {
 	static pthread_mutex_t creation_lock = PTHREAD_MUTEX_INITIALIZER;
 	pthread_mutex_t **slot = (pthread_mutex_t **)section;
+	/* (acquire and release: on ARM another thread could otherwise see the
+	pointer before the mutex it points to is initialized) */
+	pthread_mutex_t *mutex = __atomic_load_n(slot, __ATOMIC_ACQUIRE);
 
-	if (!*slot)
+	if (!mutex)
 	{
 		pthread_mutex_lock(&creation_lock);
-		if (!*slot)
+		mutex = *slot;
+		if (!mutex)
 		{
 			pthread_mutexattr_t attributes;
-			pthread_mutex_t *mutex = malloc(sizeof(*mutex));
 
+			mutex = malloc(sizeof(*mutex));
 			pthread_mutexattr_init(&attributes);
 			pthread_mutexattr_settype(&attributes, PTHREAD_MUTEX_RECURSIVE);
 			pthread_mutex_init(mutex, &attributes);
 			pthread_mutexattr_destroy(&attributes);
-			*slot = mutex;
+			__atomic_store_n(slot, mutex, __ATOMIC_RELEASE);
 		}
 		pthread_mutex_unlock(&creation_lock);
 	}
-	return *slot;
+	return mutex;
 }
 
 VOID NTAPI RtlInitializeCriticalSection(PRTL_CRITICAL_SECTION section)
