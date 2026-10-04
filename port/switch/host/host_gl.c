@@ -310,6 +310,9 @@ int host_gl_buffer_persist(uint32_t target, uint32_t size)
 		&buffer);
 	if (slot == PERSISTENT_BUFFERS || !buffer)
 		return 0;
+	/* (errors from before are not BufferStorage's) */
+	while (gl.GetError() != GL_NO_ERROR)
+		;
 	gl.BufferStorage(target, size, NULL, PERSISTENT_FLAGS);
 	mapping = gl.GetError() == GL_NO_ERROR ? gl.MapBufferRange(target, 0, size, PERSISTENT_FLAGS) : NULL;
 	if (!mapping)
