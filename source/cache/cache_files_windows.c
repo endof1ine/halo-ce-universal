@@ -811,9 +811,11 @@ short cache_file_read(
 	request->overlapped.OffsetHigh = 0;
 	request->overlapped.Offset = offset;
 	request->buffer = buffer;
-	request->pending = TRUE;
 	request->blocking = blocking;
 	request->running = FALSE;
+	/* (port: the elevator thread scans the slots unlocked; on ARM the slot's
+	fields must be visible before pending is) */
+	__atomic_store_n(&request->pending, TRUE, __ATOMIC_RELEASE);
 	cache_file_windows_thread_wake();
 
 	return request_index;
@@ -1056,9 +1058,11 @@ static void CALLBACK cache_file_read_io_completion_routine(
 		"c:\\halo\\SOURCE\\cache\\cache_files_windows.c",
 		1389,
 		finished_request->overlapped.hEvent);
-	*(volatile boolean *)finished_request->overlapped.hEvent = TRUE;
-	finished_request->pending = FALSE;
+	/* (port: release stores, so the data read is visible before the flag
+	and the slot is idle before it can be reused) */
+	__atomic_store_n((volatile boolean *)finished_request->overlapped.hEvent, TRUE, __ATOMIC_RELEASE);
 	finished_request->running = FALSE;
+	__atomic_store_n(&finished_request->pending, FALSE, __ATOMIC_RELEASE);
 
 	return;
 }
@@ -1086,7 +1090,7 @@ static void cache_file_windows_thread_proc(
 			{
 				struct cache_file_request *request = cache_request_get(request_index);
 
-				if (request->pending &&
+				if (__atomic_load_n(&request->pending, __ATOMIC_ACQUIRE) &&
 					!request->running &&
 					(!best_request ||
 						(best_request->blocking > request->blocking &&
@@ -1515,7 +1519,7 @@ static short cache_request_next_free_index(
 			request_index < MAXIMUM_SIMULTANEOUS_CACHE_REQUESTS;
 			request_index++)
 		{
-			if (!cache_request_get(request_index)->pending)
+			if (!__atomic_load_n(&cache_request_get(request_index)->pending, __ATOMIC_ACQUIRE))
 			{
 				return request_index;
 			}
@@ -1527,6 +1531,9 @@ static short cache_request_next_free_index(
 		{
 			out_of_requests = TRUE;
 		}
+		/* (port: yield, so the elevator thread runs where the scheduler is
+		strictly by priority, as the Switch's is) */
+		SwitchToThread();
 	}
 
 	return NONE;
