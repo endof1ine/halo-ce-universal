@@ -30,15 +30,32 @@ variables measure theirs on the time of day) */
 
 /* ---------- logging */
 
+/* a line in one write: stderr is unbuffered, and each write is a system call
+(on the Switch and Android, the host's) */
 void platform_log(const char *format, ...)
 {
-	va_list arguments;
+	static const char prefix[] = "halo-linux: ";
+	char line[2048];
+	va_list arguments, again;
+	int length;
 
-	fputs("halo-linux: ", stderr);
+	memcpy(line, prefix, sizeof(prefix) - 1);
 	va_start(arguments, format);
-	vfprintf(stderr, format, arguments);
+	va_copy(again, arguments);
+	length = vsnprintf(line + sizeof(prefix) - 1, sizeof(line) - sizeof(prefix), format, arguments);
+	if (length >= 0 && (size_t)length < sizeof(line) - sizeof(prefix))
+	{
+		line[sizeof(prefix) - 1 + length] = '\n';
+		fwrite(line, 1, sizeof(prefix) + (size_t)length, stderr);
+	}
+	else
+	{
+		fputs(prefix, stderr);
+		vfprintf(stderr, format, again);
+		fputc('\n', stderr);
+	}
+	va_end(again);
 	va_end(arguments);
-	fputc('\n', stderr);
 }
 
 void platform_unimplemented(const char *name)
