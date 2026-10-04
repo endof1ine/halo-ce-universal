@@ -801,7 +801,9 @@ long scenario_tags_load(
 				tag_cache_base_address,
 				&read_complete,
 				TRUE);
-			while (!read_complete)
+			/* port: acquire, as the reader published it (cache_files_windows.c),
+			so the data read is seen after the flag */
+			while (!__atomic_load_n(&read_complete, __ATOMIC_ACQUIRE))
 			{
 				SwitchToThread();
 			}
@@ -878,7 +880,8 @@ boolean scenario_structure_bsp_load(
 			reference->base_address,
 			&read_complete,
 			TRUE);
-		while (!read_complete)
+		/* port: acquire (as above) */
+		while (!__atomic_load_n(&read_complete, __ATOMIC_ACQUIRE))
 		{
 			SwitchToThread();
 			if (system_milliseconds() - sound_render_time() > 33)
