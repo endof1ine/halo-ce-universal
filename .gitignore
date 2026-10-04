@@ -33,3 +33,8 @@ dist/
 
 # The Switch probe's build (port/switch/spike)
 port/switch/spike/probe.*
+
+# Disc images of the game (proprietary; never commit)
+*.iso
+*.ISO
+*.xiso
