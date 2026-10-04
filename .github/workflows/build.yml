@@ -1,6 +1,7 @@
 name: Build
 
-# Debug and release builds of the native ports (Linux, Windows, Android) for
+# Debug and release builds of the native ports (Linux, Windows, Android,
+# Switch) for
 # every pushed commit, uploaded as artifacts. tools/ci_build.py does each
 # build; see it for the options.
 #
@@ -82,6 +83,66 @@ jobs:
         with:
           name: halo-linux-release
           path: dist/halo-linux-release
+          retention-days: 3
+
+  switch:
+    # devkitPro's image has devkitA64, libnx and switch-mesa for the host;
+    # apt.llvm.org's clang compiles the guest image, as in the build
+    # container (port/switch/docker/Dockerfile).
+    runs-on: ubuntu-24.04
+    container: devkitpro/devkita64:latest
+    timeout-minutes: 40
+    steps:
+      - name: Install the toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl gnupg git ninja-build python3 \
+            ccache imagemagick
+          curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+          echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-21 main" \
+            > /etc/apt/sources.list.d/llvm.list
+          apt-get update
+          apt-get install -y --no-install-recommends clang-21 lld-21 llvm-21 libclang-rt-21-dev
+          echo "/usr/lib/llvm-21/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/checkout@v4
+
+      # (the program's version comes from git describe, in a checkout owned
+      # by another user than the container's)
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-switch-${{ github.sha }}
+          restore-keys: ccache-switch-
+
+      # musl and SDL's headers, which configure.py fetches
+      - uses: actions/cache@v4
+        with:
+          path: build/switch/third_party
+          key: switch-third-party-${{ hashFiles('tools/switch_build.py', 'tools/guest_build.py') }}
+
+      - name: Debug
+        run: python3 tools/ci_build.py switch debug
+
+      - name: Release
+        run: python3 tools/ci_build.py switch release
+
+      - name: Compile cache
+        run: ccache --show-stats
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: halo-switch-debug
+          path: dist/halo-switch-debug
+          retention-days: 3
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: halo-switch-release
+          path: dist/halo-switch-release
           retention-days: 3
 
   android:

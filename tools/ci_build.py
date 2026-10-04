@@ -4,6 +4,7 @@
 
     python tools/ci_build.py linux debug
     python tools/ci_build.py android release
+    python tools/ci_build.py switch release
 
 Builds are portable (any x86-64 processor), so they run on other
 computers. Debug builds skip link-time and profile-guided optimisation,
@@ -29,6 +30,7 @@ OUTPUTS = {
     "linux": ["build/linux/halo"],
     "windows": ["build/windows/halo.exe", "build/windows/SDL3.dll"],
     "android": [],  # the APK, below
+    "switch": ["build/switch/halo.nro"],
 }
 APKS = {
     "debug": "port/android/app/build/outputs/apk/debug/app-debug.apk",
