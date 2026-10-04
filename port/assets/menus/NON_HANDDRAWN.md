@@ -30,6 +30,23 @@ the same picture, or for the profile settings the Xbox's picture for the same th
 | `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__2.png` | `ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options` frame 1 |
 | `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__7.png` | `ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options` frame 3 |
 
+These have no picture of their own in the Xbox's map, so they are drawn from its picture of something
+like them (port_settings.XBOX_STAND_INS):
+
+| The PC version's frame | The Xbox's frame |
+| --- | --- |
+| `shell/main_menu/multiplayer_type_select/mp_options__0.png` | `ui\shell\main_menu\multiplayer_type_select\mp_options` frame 2 |
+| `shell/main_menu/multiplayer_type_select/mp_options__1.png` | `ui\shell\main_menu\multiplayer_type_select\mp_options` frame 2 |
+| `shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__0.png` | `ui\shell\main_menu\settings_select\multiplayer_setup\playlist_edit\gametype_options` frame 0 |
+| `shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__3.png` | `ui\shell\main_menu\settings_select\multiplayer_setup\playlist_edit\gametype_options` frame 3 |
+| `shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__4.png` | `ui\shell\main_menu\settings_select\multiplayer_setup\playlist_edit\gametype_options` frame 4 |
+| `shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__6.png` | `ui\shell\main_menu\settings_select\multiplayer_setup\playlist_edit\gametype_options` frame 2 |
+| `shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__7.png` | `ui\shell\main_menu\settings_select\multiplayer_setup\playlist_edit\gametype_options` frame 5 |
+| `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__1.png` | `ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options` frame 2 |
+| `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__3.png` | `ui\shell\main_menu\settings_select\player_setup\player_profile_edit\profile_options` frame 2 |
+| `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__5.png` | `ui\shell\main_menu\multiplayer_type_select\mp_options` frame 0 |
+| `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__6.png` | `ui\shell\main_menu\multiplayer_type_select\mp_options` frame 2 |
+
 ## Placeholders, to be redrawn
 
 The Xbox's map has none of these (or other pictures under the name), so each frame is a placeholder
@@ -37,21 +54,10 @@ until it is redrawn, or drawn blank (`blank` below: port_settings.BLANK_FRAMES, 
 
 | File | Size | The PC version's picture |
 | --- | --- | --- |
-| `ce/shell/main_menu/multiplayer_type_select/mp_options__0.png` | blank | `shell/main_menu/multiplayer_type_select/mp_options__0.png` |
-| `ce/shell/main_menu/multiplayer_type_select/mp_options__1.png` | blank | `shell/main_menu/multiplayer_type_select/mp_options__1.png` |
-| `ce/shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__0.png` | blank | `shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__0.png` |
-| `ce/shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__3.png` | blank | `shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__3.png` |
-| `ce/shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__4.png` | blank | `shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__4.png` |
-| `ce/shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__6.png` | blank | `shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__6.png` |
-| `ce/shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__7.png` | blank | `shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__7.png` |
-| `ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__1.png` | blank | `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__1.png` |
-| `ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__3.png` | blank | `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__3.png` |
 | `ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__4.png` | blank | `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__4.png` |
-| `ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__5.png` | blank | `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__5.png` |
-| `ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__6.png` | blank | `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__6.png` |
 | `ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__8.png` | blank | `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__8.png` |
 
-0 of 144 frames are placeholders, 13 drawn blank.
+0 of 144 frames are placeholders, 2 drawn blank.
 
 The PC version's `ui\gamespy` and `ui\ticker` fonts are drawn with `ui\small_ui`, which
 the Xbox's map has.

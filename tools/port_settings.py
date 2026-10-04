@@ -206,15 +206,36 @@ STRING_VARIANTS = {
 # the Switch
 FRAME_PLATFORMS = {f"{PE}/profile_options": {1: NOT_SWITCH}}
 
-# the PC version's pictures with no redraw and none in the Xbox's map, drawn
-# blank (a transparent 512x256 picture, which tools/ce_menus.py writes)
-# rather than as placeholders unlike the game's own (NON_HANDDRAWN.md)
-BLANK_FRAMES = {
-    *(f"ce/shell/main_menu/multiplayer_type_select/mp_options__{index}.png" for index in (0, 1)),
-    *(f"ce/shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options__{index}.png"
-      for index in (0, 3, 4, 6, 7)),
-    *(f"ce/shell/{PE}/profile_options__{index}.png" for index in (1, 3, 4, 5, 6, 8)),
+# the PC version's pictures with no redraw and none of their own in the Xbox's
+# map: the Xbox's map's picture of something like it (by its tag and frame;
+# the player's own ui.map draws it, as XBOX_BITMAPS), else drawn blank (a
+# transparent 512x256 picture, which tools/ce_menus.py writes) rather than as
+# placeholders unlike the game's own (NON_HANDDRAWN.md)
+_XBOX_MP = "ui\\shell\\main_menu\\multiplayer_type_select\\mp_options"
+_XBOX_GAMETYPE = "ui\\shell\\main_menu\\settings_select\\multiplayer_setup\\playlist_edit\\gametype_options"
+_XBOX_PROFILE = "ui\\shell\\main_menu\\settings_select\\player_setup\\player_profile_edit\\profile_options"
+_MP_PNG = "ce/shell/main_menu/multiplayer_type_select/mp_options"
+_GAMETYPE_PNG = "ce/shell/main_menu/settings_select/multiplayer_setup/playlist_edit/gametype_options"
+_PROFILE_PNG = f"ce/shell/{PE}/profile_options"
+XBOX_STAND_INS = {
+    # (the consoles linked: internet and LAN games)
+    f"{_MP_PNG}__0.png": (_XBOX_MP, 2),
+    f"{_MP_PNG}__1.png": (_XBOX_MP, 2),
+    # (the keyboard, the weapons, the Warthog, a team, the console saving)
+    f"{_GAMETYPE_PNG}__0.png": (_XBOX_GAMETYPE, 0),
+    f"{_GAMETYPE_PNG}__3.png": (_XBOX_GAMETYPE, 3),
+    f"{_GAMETYPE_PNG}__4.png": (_XBOX_GAMETYPE, 4),
+    f"{_GAMETYPE_PNG}__6.png": (_XBOX_GAMETYPE, 2),
+    f"{_GAMETYPE_PNG}__7.png": (_XBOX_GAMETYPE, 5),
+    # (the controller's settings: controls, mouse or gyro; a television;
+    # the consoles linked)
+    f"{_PROFILE_PNG}__1.png": (_XBOX_PROFILE, 2),
+    f"{_PROFILE_PNG}__3.png": (_XBOX_PROFILE, 2),
+    f"{_PROFILE_PNG}__5.png": (_XBOX_MP, 0),
+    f"{_PROFILE_PNG}__6.png": (_XBOX_MP, 2),
 }
+# (Audio Setup's and About's: nothing like them)
+BLANK_FRAMES = {f"{_PROFILE_PNG}__4.png", f"{_PROFILE_PNG}__8.png"}
 BLANK_PICTURE = "ce/port/blank_picture.png"
 
 

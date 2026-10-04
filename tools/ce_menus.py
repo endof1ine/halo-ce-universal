@@ -286,6 +286,7 @@ class Art:
         self.placeholder = Image.open(placeholder).convert("RGBA")
         self.pictures = []  # (frame, size, PC picture) of the frames drawn as the placeholder
         self.xbox_frames = []  # (PC frame, Xbox bitmap, its frame) drawn from the Xbox map
+        self.xbox_stand_ins = []  # (PC frame, Xbox bitmap, its frame): port_settings.XBOX_STAND_INS
         self.svgs = []
         self.pngs = []
 
@@ -359,6 +360,11 @@ class Art:
                 lines.append(f"\t\t<frame{attributes([('map', tag), ('index', XBOX_FRAMES[name]), ('platform', platform)])}/>")
                 continue
             png = f"ce/{relative}__{index}.png"
+            if png in port_settings.XBOX_STAND_INS:
+                stand_in, stand_in_index = port_settings.XBOX_STAND_INS[png]
+                self.xbox_stand_ins.append((png, stand_in, stand_in_index))
+                lines.append(f"\t\t<frame{attributes([('map', stand_in), ('index', stand_in_index), ('platform', platform)])}/>")
+                continue
             if png in port_settings.BLANK_FRAMES:
                 if not (MENUS / port_settings.BLANK_PICTURE).is_file():
                     Image.new("RGBA", (width, height)).save(MENUS / port_settings.BLANK_PICTURE, optimize=True)
@@ -658,6 +664,9 @@ def main() -> None:
         "| --- | --- |",
     ]
     report += [f"| `{name}.png` | `{tag}` frame {index} |" for name, tag, index in sorted(art.xbox_frames)]
+    report += ["", "These have no picture of their own in the Xbox's map, so they are drawn from its picture of something",
+               "like them (port_settings.XBOX_STAND_INS):", "", "| The PC version's frame | The Xbox's frame |", "| --- | --- |"]
+    report += [f"| `{png[3:]}` | `{tag}` frame {index} |" for png, tag, index in sorted(art.xbox_stand_ins)]
     report += [
         "",
         "## Placeholders, to be redrawn",
