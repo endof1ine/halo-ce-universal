@@ -97,7 +97,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates curl gnupg git ninja-build python3 \
-            ccache imagemagick
+            python3-pytest ccache imagemagick
           curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | gpg --dearmor -o /usr/share/keyrings/llvm.gpg
           echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-21 main" \
             > /etc/apt/sources.list.d/llvm.list
@@ -129,6 +129,9 @@ jobs:
 
       - name: Release
         run: python3 tools/ci_build.py switch release
+
+      - name: Test
+        run: python3 -m pytest -q tools/test_switch_build.py
 
       - name: Compile cache
         run: ccache --show-stats
