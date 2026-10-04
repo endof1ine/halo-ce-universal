@@ -69,7 +69,9 @@ uint32_t host_call_guest(uint32_t function, uint32_t a, uint32_t b, uint32_t c, 
 {
 	if (!on_guest_stack())
 		host_fatal("guest code called on a thread without a guest stack");
-	if (!guest_tp)
+	/* (thread_start sets the thread's own, which an attached one would
+	leave allocated) */
+	if (!guest_tp && function != host_image.header->thread_start)
 		((guest_function)(uintptr_t)host_image.header->thread_attach)(0, 0, 0, 0);
 	return ((guest_function)(uintptr_t)function)(a, b, c, d);
 }

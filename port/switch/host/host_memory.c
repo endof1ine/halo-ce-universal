@@ -90,6 +90,7 @@ static int commit(uint64_t address, uint64_t size, const void *data, uint64_t da
 {
 	void *backing = aligned_alloc(PAGE, size);
 	Result result;
+	int mapped;
 
 	if (!backing)
 	{
@@ -108,12 +109,16 @@ static int commit(uint64_t address, uint64_t size, const void *data, uint64_t da
 	}
 	armDCacheFlush(backing, size);
 	result = svcMapProcessCodeMemory(envGetOwnProcessHandle(), address, (u64)backing, size);
-	if (R_SUCCEEDED(result))
+	mapped = R_SUCCEEDED(result);
+	if (mapped)
 		result = svcSetProcessMemoryPermission(envGetOwnProcessHandle(), address, size, permission);
 	if (R_FAILED(result))
 	{
 		host_logf(HOST_LOG_ERROR, "cannot map %llu KB at %08llx: 0x%x", (unsigned long long)(size >> 10),
 			(unsigned long long)address, result);
+		/* the backing is the heap's again once no longer lent */
+		if (!mapped || R_SUCCEEDED(svcUnmapProcessCodeMemory(envGetOwnProcessHandle(), address, (u64)backing, size)))
+			free(backing);
 		return -1;
 	}
 	if (permission == Perm_Rx)
@@ -502,9 +507,14 @@ long host_guest_mmap(uint64_t address, uint64_t size, int protection, int flags,
 			if (!custom_edition_committed)
 				return -ENOMEM;
 		}
-		else if (!in_range(address, length, WINDOW_BASE, WINDOW_END) && !arena_owns(address, length))
+		/* (the window is the guest's, committed for it: its reservation,
+		xbox_memory.c's MAP_FIXED_NOREPLACE, is the first mapping there) */
+		else if (!in_range(address, length, WINDOW_BASE, WINDOW_END))
 		{
-			return flags & GUEST_MAP_FIXED_NOREPLACE ? -EEXIST : -EINVAL;
+			if (!arena_owns(address, length))
+				return -EINVAL;
+			if (flags & GUEST_MAP_FIXED_NOREPLACE)
+				return -EEXIST;
 		}
 		if (permission == Perm_None)
 			return set_permission(address, length, Perm_None) ? -ENOMEM : (long)address;
