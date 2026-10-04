@@ -106,4 +106,16 @@ void host_gl_wait_frame(unsigned int slot);
 /* the storage directories the port uses, copied into buffer */
 void host_android_path(int which, char *buffer, unsigned int size);
 
+/* ---------- movies (port/linux/src/bink_host.c, on the Switch)
+
+host_bink_open gives a movie's handle (0 when it cannot) and its width,
+height, frame count and frame rate (numerator, denominator) in
+description[0..4]; host_bink_decode the next frame (0 at the end), whose
+sound the host plays; host_bink_copy the frame as X8R8G8B8 rows. */
+
+unsigned int host_bink_open(const char *path, unsigned int *description);
+int host_bink_decode(unsigned int movie);
+void host_bink_copy(unsigned int movie, void *destination, int pitch, unsigned int height);
+void host_bink_close(unsigned int movie);
+
 #endif

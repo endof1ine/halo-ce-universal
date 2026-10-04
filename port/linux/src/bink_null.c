@@ -9,6 +9,8 @@ The prototypes match the declarations in bink_playback.c; the RAD SDK's
 RADEXPLINK is __stdcall.
 */
 
+#ifndef HALO_SWITCH /* (the Switch plays them: bink_host.c) */
+
 #include "platform.h"
 
 typedef void *(__stdcall *rad_memory_allocate_proc)(unsigned long size);
@@ -65,3 +67,5 @@ long __stdcall BinkCopyToBuffer(HBINK bink, void *destination, long destination_
 
 void __stdcall BinkGetSummary(HBINK bink, void *summary) { (void)bink; (void)summary; }
 void __stdcall BinkGetRealtime(HBINK bink, void *realtime, unsigned long frame_count) { (void)bink; (void)realtime; (void)frame_count; }
+
+#endif

@@ -133,6 +133,10 @@ void host_input_initialize(void);
 void host_input_update(void);
 void host_input_stop_rumble(void);
 void host_audio_pause(int paused);
+/* a movie's sound (host_bink.c): 48 kHz stereo, mixed into the game's */
+void host_audio_movie_start(void);
+void host_audio_movie_put(const int16_t *samples, uint32_t frames);
+void host_audio_movie_stop(void);
 /* SDL3 events made by the host (host_sdl.c) */
 void host_sdl_queue_gamepad_added(uint32_t id);
 /* relative mouse motion: the platform layer's mouse look (gyro aiming) */

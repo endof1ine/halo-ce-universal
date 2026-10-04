@@ -10,6 +10,9 @@ A thread of the host's (core 2, above the guest's other threads) waits for
 audout to finish a buffer, asks the guest's callback for its frames on a
 stack below 4 GB (host_thread.c), converts them and queues the buffer
 again.
+
+A movie's sound (host_bink.c) waits in a ring of its own, and is mixed into
+each buffer after the game's.
 */
 
 #include "host.h"
@@ -32,6 +35,13 @@ static int16_t staging[STAGING_FRAMES * CHANNELS];
 static uint32_t staged_frames;
 static uint32_t callback, userdata;
 static int opened, running, paused;
+
+/* the movie's sound: 48 kHz stereo, a few seconds of it ahead at most */
+#define MOVIE_FRAMES (48000 * 4)
+static int16_t movie_ring[MOVIE_FRAMES * CHANNELS];
+static uint32_t movie_read, movie_count;
+static int movie_playing;
+static Mutex movie_lock;
 static Mutex audio_lock;
 static CondVar audio_condition;
 
@@ -60,6 +70,54 @@ int host_sdl_put_audio_stream_data(uint32_t stream, const void *data, int length
 	return 1;
 }
 
+/* the movie's sound into a buffer of the game's */
+static void movie_mix(int16_t *out)
+{
+	uint32_t frame;
+
+	mutexLock(&movie_lock);
+	for (frame = 0; frame < FRAMES && movie_count; frame++, movie_count--)
+	{
+		int channel;
+
+		for (channel = 0; channel < CHANNELS; channel++)
+		{
+			int value = out[frame * CHANNELS + channel] + movie_ring[movie_read * CHANNELS + channel];
+
+			out[frame * CHANNELS + channel] = (int16_t)(value > 32767 ? 32767 : value < -32768 ? -32768 : value);
+		}
+		movie_read = (movie_read + 1) % MOVIE_FRAMES;
+	}
+	mutexUnlock(&movie_lock);
+}
+
+void host_audio_movie_start(void)
+{
+	mutexLock(&movie_lock);
+	movie_read = movie_count = 0;
+	movie_playing = 1;
+	mutexUnlock(&movie_lock);
+}
+
+void host_audio_movie_put(const int16_t *samples, uint32_t frames)
+{
+	uint32_t frame;
+
+	mutexLock(&movie_lock);
+	for (frame = 0; frame < frames && movie_playing && movie_count < MOVIE_FRAMES; frame++, movie_count++)
+		memcpy(&movie_ring[((movie_read + movie_count) % MOVIE_FRAMES) * CHANNELS], &samples[frame * CHANNELS],
+			CHANNELS * sizeof(int16_t));
+	mutexUnlock(&movie_lock);
+}
+
+void host_audio_movie_stop(void)
+{
+	mutexLock(&movie_lock);
+	movie_playing = 0;
+	movie_count = 0;
+	mutexUnlock(&movie_lock);
+}
+
 /* fills a buffer: the staged frames, then the guest's callback for the
 rest, then silence */
 static void fill(AudioOutBuffer *buffer)
@@ -84,6 +142,7 @@ static void fill(AudioOutBuffer *buffer)
 		memset(out + staged_frames * CHANNELS, 0, (FRAMES - staged_frames) * CHANNELS * sizeof(int16_t));
 		staged_frames = 0;
 	}
+	movie_mix(out);
 	buffer->data_size = FRAMES * CHANNELS * sizeof(int16_t);
 }
 
