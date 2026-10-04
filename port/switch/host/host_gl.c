@@ -12,6 +12,7 @@ is the Android host's).
 
 #include <EGL/egl.h>
 #include <GLES3/gl32.h>
+#include <GLES2/gl2ext.h>
 #include <string.h>
 #include <switch.h>
 
@@ -121,6 +122,8 @@ static struct
 	GLsync (GL_APIENTRY *FenceSync)(GLenum, GLbitfield);
 	void (GL_APIENTRY *DeleteSync)(GLsync);
 	GLenum (GL_APIENTRY *ClientWaitSync)(GLsync, GLbitfield, GLuint64);
+	GLenum (GL_APIENTRY *GetError)(void);
+	void (GL_APIENTRY *BufferStorage)(GLenum, GLsizeiptr, const void *, GLbitfield);
 } gl;
 
 static void gl_load(void)
@@ -136,6 +139,8 @@ static void gl_load(void)
 	gl.FenceSync = host_gl_resolve("glFenceSync");
 	gl.DeleteSync = host_gl_resolve("glDeleteSync");
 	gl.ClientWaitSync = host_gl_resolve("glClientWaitSync");
+	gl.GetError = host_gl_resolve("glGetError");
+	gl.BufferStorage = host_gl_resolve("glBufferStorageEXT");
 	gl.GetString = host_gl_resolve("glGetString");
 }
 
@@ -238,4 +243,74 @@ void host_gl_buffer_write(uint32_t target, uint32_t offset, uint32_t size, const
 	}
 	memcpy(mapping, data, size);
 	gl.UnmapBuffer(target);
+}
+
+/* ---------- the stream ring, mapped for good
+
+With EXT_buffer_storage the ring's buffers are mapped once, persistently and
+coherently: a write is then a copy, not a mapping, a copy and an unmapping
+in the driver each time. The ring's fences still keep a buffer from being
+written while queued draws read it. */
+
+#define PERSISTENT_BUFFERS 8
+#define PERSISTENT_FLAGS (GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT)
+
+static struct
+{
+	GLuint buffer;
+	uint8_t *mapping;
+	uint32_t size;
+} persistent[PERSISTENT_BUFFERS];
+
+/* gives the buffer bound to target (a new one, with no storage yet) size
+bytes, mapped for good; 0 when it cannot, and then the buffer may be
+unusable: the guest makes another */
+int host_gl_buffer_persist(uint32_t target, uint32_t size)
+{
+	GLint buffer = 0;
+	void *mapping;
+	int slot;
+
+	gl_load();
+	if (!gl.BufferStorage || !host_gl_has_extension("GL_EXT_buffer_storage"))
+		return 0;
+	for (slot = 0; slot < PERSISTENT_BUFFERS && persistent[slot].buffer; slot++)
+		;
+	gl.GetIntegerv(target == GL_ELEMENT_ARRAY_BUFFER ? GL_ELEMENT_ARRAY_BUFFER_BINDING : GL_ARRAY_BUFFER_BINDING,
+		&buffer);
+	if (slot == PERSISTENT_BUFFERS || !buffer)
+		return 0;
+	gl.BufferStorage(target, size, NULL, PERSISTENT_FLAGS);
+	mapping = gl.GetError() == GL_NO_ERROR ? gl.MapBufferRange(target, 0, size, PERSISTENT_FLAGS) : NULL;
+	if (!mapping)
+	{
+		while (gl.GetError() != GL_NO_ERROR)
+			;
+		host_logf(HOST_LOG_WARN, "cannot map stream buffer %d for good", buffer);
+		return 0;
+	}
+	persistent[slot].buffer = (GLuint)buffer;
+	persistent[slot].mapping = mapping;
+	persistent[slot].size = size;
+	return 1;
+}
+
+/* writes data into a ring buffer, by its name: a copy into its mapping, or
+(one host_gl_buffer_persist could not map) as host_gl_buffer_write does */
+void host_gl_buffer_write_to(uint32_t buffer, uint32_t offset, uint32_t size, const void *data)
+{
+	int slot;
+
+	for (slot = 0; slot < PERSISTENT_BUFFERS && persistent[slot].buffer; slot++)
+	{
+		if (persistent[slot].buffer == buffer)
+		{
+			if (offset <= persistent[slot].size && size <= persistent[slot].size - offset)
+				memcpy(persistent[slot].mapping + offset, data, size);
+			return;
+		}
+	}
+	gl_load();
+	gl.BindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+	host_gl_buffer_write(GL_COPY_WRITE_BUFFER, offset, size, data);
 }

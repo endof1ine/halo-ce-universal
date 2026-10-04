@@ -128,4 +128,10 @@ void host_config_changed(void);
 /* a map loading: the Switch's host boosts the CPU (and lowers the GPU) */
 void host_cpu_boost(int boost);
 
+/* the Switch's: storage for the buffer bound to target, mapped for good (0
+when it cannot: the buffer may then be unusable); a write into a ring
+buffer, by its name */
+int host_gl_buffer_persist(unsigned int target, unsigned int size);
+void host_gl_buffer_write_to(unsigned int buffer, unsigned int offset, unsigned int size, const void *data);
+
 #endif

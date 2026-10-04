@@ -107,6 +107,23 @@ void host_cpu_boost(int boost)
 	(void)boost;
 }
 
+/* (the Switch's host maps its stream ring for good; this one's guest does
+not ask) */
+int host_gl_buffer_persist(uint32_t target, uint32_t size)
+{
+	(void)target;
+	(void)size;
+	return 0;
+}
+
+void host_gl_buffer_write_to(uint32_t buffer, uint32_t offset, uint32_t size, const void *data)
+{
+	(void)buffer;
+	(void)offset;
+	(void)size;
+	(void)data;
+}
+
 static int directory_has_maps(const char *root)
 {
 	char path[600];

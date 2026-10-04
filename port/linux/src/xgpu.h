@@ -37,6 +37,10 @@ unsigned int host_gl_read_buffer_word(unsigned int buffer, unsigned int offset);
 void host_gl_buffer_write(unsigned int target, unsigned int offset, unsigned int size, const void *data);
 void host_gl_fence_frame(unsigned int slot);
 void host_gl_wait_frame(unsigned int slot);
+#ifdef HALO_SWITCH
+int host_gl_buffer_persist(unsigned int target, unsigned int size);
+void host_gl_buffer_write_to(unsigned int buffer, unsigned int offset, unsigned int size, const void *data);
+#endif
 #endif
 
 /* ---------- GL state

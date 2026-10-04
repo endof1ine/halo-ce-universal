@@ -134,6 +134,7 @@ These settings are not in the file. Add them to find problems:
 | --- | --- |
 | `debug.profile` | Every 10 seconds, write to host.log where the game spends its time (refer to "Find problems"). On in debug builds, off in release builds. |
 | `debug.watch_verify` | `true`: compare all the watched memory every frame, and log the changes that the schedule finds late (refer to "Write tracking"). |
+| `debug.no_persistent_buffers` | `true`: map the vertex buffers for each write, as before, instead of once. Try it if geometry flickers or shows garbage. |
 
 ## Find problems
 

@@ -63,3 +63,6 @@ host_bink_close
 host_config_changed
 # the CPU's clock while a map loads (the Switch's)
 host_cpu_boost
+# the stream ring mapped for good (the Switch's)
+host_gl_buffer_persist
+host_gl_buffer_write_to

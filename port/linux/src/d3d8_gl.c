@@ -974,6 +974,37 @@ static BOOL bind_targets(BOOL *has_depth)
 static void async_shaders_start(void);
 #endif
 
+#ifdef HALO_GUEST
+/* a buffer of the stream ring: on the Switch mapped for good where it can be
+(host_gl_buffer_persist), else (and elsewhere) one that can be orphaned */
+static void ring_buffer_create(GLuint *buffer, GLenum target, unsigned long size)
+{
+	glBindBuffer(target, *buffer);
+#ifdef HALO_SWITCH
+	if (!config_boolean("debug.no_persistent_buffers") && host_gl_buffer_persist(target, (unsigned int)size))
+		return;
+	glDeleteBuffers(1, buffer);
+	glGenBuffers(1, buffer);
+	glBindBuffer(target, *buffer);
+#endif
+	glBufferData(target, (GLsizeiptr)size, NULL, GL_STREAM_DRAW);
+}
+
+/* the next of the ring's buffers, once the GPU has done with the frame that
+last used it: at each frame, and on the Switch when a frame fills one
+(its buffers may be mapped for good, which cannot be orphaned) */
+static void buffer_ring_advance(void)
+{
+	host_gl_fence_frame((unsigned int)device.buffer_ring);
+	device.buffer_ring = (device.buffer_ring + 1) % STREAM_BUFFER_RING;
+	host_gl_wait_frame((unsigned int)device.buffer_ring);
+	device.stream_buffer = device.stream_buffers[device.buffer_ring];
+	device.index_buffer = device.index_buffers[device.buffer_ring];
+	device.stream_offset = 0;
+	device.index_offset = 0;
+}
+#endif
+
 static void gl_initialize(void)
 {
 	GLint major = 0, minor = 0;
@@ -1028,10 +1059,8 @@ static void gl_initialize(void)
 		glGenBuffers(STREAM_BUFFER_RING, device.index_buffers);
 		for (ring = 0; ring < STREAM_BUFFER_RING; ring++)
 		{
-			glBindBuffer(GL_ARRAY_BUFFER, device.stream_buffers[ring]);
-			glBufferData(GL_ARRAY_BUFFER, STREAM_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
-			glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, device.index_buffers[ring]);
-			glBufferData(GL_ELEMENT_ARRAY_BUFFER, INDEX_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
+			ring_buffer_create(&device.stream_buffers[ring], GL_ARRAY_BUFFER, STREAM_BUFFER_SIZE);
+			ring_buffer_create(&device.index_buffers[ring], GL_ELEMENT_ARRAY_BUFFER, INDEX_BUFFER_SIZE);
 		}
 		device.stream_buffer = device.stream_buffers[0];
 		device.index_buffer = device.index_buffers[0];
@@ -3771,10 +3800,14 @@ static void stream_reserve(unsigned long size)
 {
 	if (device.stream_offset + size > STREAM_BUFFER_SIZE)
 	{
+#ifdef HALO_SWITCH
+		buffer_ring_advance();
+#else
 		/* orphan the buffer and start again */
 		state_array_buffer(device.stream_buffer);
 		glBufferData(GL_ARRAY_BUFFER, STREAM_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
 		device.stream_offset = 0;
+#endif
 	}
 }
 
@@ -3785,10 +3818,13 @@ static unsigned long stream_upload(const void *data, unsigned long size)
 	size = (size + 15) & ~15UL;
 	stream_reserve(size);
 	offset = device.stream_offset;
+#if defined(HALO_SWITCH)
+	host_gl_buffer_write_to(device.stream_buffer, (unsigned int)offset, (unsigned int)size, data);
+#elif defined(HALO_GUEST)
 	state_array_buffer(device.stream_buffer);
-#ifdef HALO_GUEST
 	host_gl_buffer_write(GL_ARRAY_BUFFER, (unsigned int)offset, (unsigned int)size, data);
 #else
+	state_array_buffer(device.stream_buffer);
 	glBufferSubData(GL_ARRAY_BUFFER, (GLintptr)offset, (GLsizeiptr)size, data);
 #endif
 	device.stream_offset += size;
@@ -3800,14 +3836,22 @@ static unsigned long index_upload(const void *data, unsigned long size)
 	unsigned long offset;
 
 	size = (size + 15) & ~15UL;
+#ifdef HALO_SWITCH
+	if (device.index_offset + size > INDEX_BUFFER_SIZE)
+		buffer_ring_advance();
+	state_element_array_buffer(device.index_buffer);
+#else
 	state_element_array_buffer(device.index_buffer);
 	if (device.index_offset + size > INDEX_BUFFER_SIZE)
 	{
 		glBufferData(GL_ELEMENT_ARRAY_BUFFER, INDEX_BUFFER_SIZE, NULL, GL_STREAM_DRAW);
 		device.index_offset = 0;
 	}
+#endif
 	offset = device.index_offset;
-#ifdef HALO_GUEST
+#if defined(HALO_SWITCH)
+	host_gl_buffer_write_to(device.index_buffer, (unsigned int)offset, (unsigned int)size, data);
+#elif defined(HALO_GUEST)
 	host_gl_buffer_write(GL_ELEMENT_ARRAY_BUFFER, (unsigned int)offset, (unsigned int)size, data);
 #else
 	glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, (GLintptr)offset, (GLsizeiptr)size, data);
@@ -4414,13 +4458,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 #ifdef HALO_GUEST
 		if (xgpu_capabilities.atomic_counters)
 			visibility_stage_frame();
-		host_gl_fence_frame((unsigned int)device.buffer_ring);
-		device.buffer_ring = (device.buffer_ring + 1) % STREAM_BUFFER_RING;
-		host_gl_wait_frame((unsigned int)device.buffer_ring);
-		device.stream_buffer = device.stream_buffers[device.buffer_ring];
-		device.index_buffer = device.index_buffers[device.buffer_ring];
-		device.stream_offset = 0;
-		device.index_offset = 0;
+		buffer_ring_advance();
 #else
 		device.stream_offset = STREAM_BUFFER_SIZE; /* orphan next frame */
 		device.index_offset = INDEX_BUFFER_SIZE;
