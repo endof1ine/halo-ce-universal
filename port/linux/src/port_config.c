@@ -804,6 +804,11 @@ static long config_setting_index(const char *name)
 /* keys in the file that are no setting, likely misspelt */
 static void config_report_unknown_keys(toml_datum_t table)
 {
+#ifdef HALO_SWITCH
+	/* (the Switch's host reads these itself, and they are not in the file
+	unless added: port/switch/README.md) */
+	static const char *const host_settings[] = { "debug.profile", "debug.watch_verify" };
+#endif
 	int section_index;
 
 	for (section_index = 0; section_index < table.u.tab.size; section_index++)
@@ -821,6 +826,19 @@ static void config_report_unknown_keys(toml_datum_t table)
 			char name[128];
 
 			snprintf(name, sizeof(name), "%s.%s", table.u.tab.key[section_index], section.u.tab.key[key_index]);
+#ifdef HALO_SWITCH
+			{
+				size_t host;
+
+				for (host = 0; host < sizeof(host_settings) / sizeof(host_settings[0]); host++)
+				{
+					if (!strcmp(name, host_settings[host]))
+						break;
+				}
+				if (host < sizeof(host_settings) / sizeof(host_settings[0]))
+					continue;
+			}
+#endif
 			if (config_setting_index(name) < 0)
 				platform_log("config.toml line %d: unknown setting %s", section.u.tab.value[key_index].lineno, name);
 		}

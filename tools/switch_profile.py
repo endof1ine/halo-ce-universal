@@ -3,8 +3,9 @@
 
 The host logs, every 10 seconds, the addresses the game's main thread was
 found at most. This reads those lines from a log (host.log, or the output of
-tools/switch_docker.sh nxlink), symbolizes them - addresses below 4 GB in the
-guest image, the others in the host program, from the base the log gives -
+tools/switch_docker.sh nxlink), symbolizes them - addresses in the guest
+image (its range from the log, else below 4 GB) in it, the others in the
+host program, from the base the log gives -
 and prints the functions by their share of the samples.
 
     python3 tools/switch_profile.py build/switch-logs/boot-4.txt [--last N]
@@ -50,6 +51,13 @@ def main() -> None:
 
     text = open(args.log, "rb").read().decode("utf-8", "replace")
     reports = []
+    # (the host program can load below 4 GB too: the guest is its image)
+    image = re.search(r"guest image ([0-9a-f]+)-([0-9a-f]+)", text)
+    guest_range = (int(image.group(1), 16), int(image.group(2), 16)) if image else (0, 1 << 32)
+
+    def in_guest(address: int) -> bool:
+        return guest_range[0] <= address < guest_range[1]
+
     for line in text.splitlines():
         header = re.search(r"profile: (\d+) samples, (\d+)% waiting in the kernel; host main at ([0-9a-f]+)", line)
         if header:
@@ -71,8 +79,8 @@ def main() -> None:
     counts = collections.Counter()
     for report in reports:
         counts.update(report["counts"])
-    guest_addresses = [a for a in counts if a < 1 << 32]
-    host_addresses = [a for a in counts if a >= 1 << 32]
+    guest_addresses = [a for a in counts if in_guest(a)]
+    host_addresses = [a for a in counts if not in_guest(a)]
     names = symbolize(GUEST, guest_addresses)
     host_names = symbolize(HOST, [a - host_offset for a in host_addresses])
     for address in host_addresses:
@@ -92,7 +100,7 @@ def main() -> None:
     callers = collections.Counter()
     for report in reports:
         callers.update(report["callers"])
-    caller_names = symbolize(GUEST, [a for a in callers if a > 1 and a < 1 << 32])
+    caller_names = symbolize(GUEST, [a for a in callers if a > 1 and in_guest(a)])
     by_caller = collections.Counter()
     for address, count in callers.items():
         by_caller[caller_names.get(address, "(no guest caller)")] += count
