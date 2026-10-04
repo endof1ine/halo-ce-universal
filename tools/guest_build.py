@@ -106,6 +106,8 @@ MUSL_EXCLUDE = {
     "env/__reset_tls.c", "malloc/oldmalloc", "thread/pthread_create.c",
     # unused, and its compiler barrier is an inline assembly statement
     "string/explicit_bzero.c",
+    # a byte at a time: the runtime's compares a word at a time
+    "string/memcmp.c",
 }
 # game files that call variadic functions without a prototype in scope, which
 # only works under x86's calling convention (tools/android_abi_check.py)
