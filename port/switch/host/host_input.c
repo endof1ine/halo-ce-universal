@@ -392,8 +392,11 @@ int host_sdl_gamepad_button(uint32_t gamepad, int button)
 	case SDL_GAMEPAD_BUTTON_START: mask = HidNpadButton_Plus; break;
 	case SDL_GAMEPAD_BUTTON_LEFT_STICK: mask = HidNpadButton_StickL; break;
 	case SDL_GAMEPAD_BUTTON_RIGHT_STICK: mask = HidNpadButton_StickR; break;
-	case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: mask = HidNpadButton_L; break;
-	case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: mask = HidNpadButton_R; break;
+	/* (the Xbox's black button, the grenades', on L beside ZL, which throws
+	one; its white button, the flashlight, on R: xinput_sdl.c reads SDL's
+	left shoulder as white) */
+	case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: mask = HidNpadButton_R; break;
+	case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: mask = HidNpadButton_L; break;
 	case SDL_GAMEPAD_BUTTON_DPAD_UP: mask = HidNpadButton_Up; break;
 	case SDL_GAMEPAD_BUTTON_DPAD_DOWN: mask = HidNpadButton_Down; break;
 	case SDL_GAMEPAD_BUTTON_DPAD_LEFT: mask = HidNpadButton_Left; break;

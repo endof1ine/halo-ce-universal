@@ -82,8 +82,8 @@ The buttons go by their labels, as the game's prompts show them:
 | B | B | melee, back |
 | X | X | action, reload |
 | Y | Y | change the weapon |
-| L | white | flashlight |
-| R | black | change the grenade |
+| L | black | change the grenade |
+| R | white | flashlight |
 | stick clicks | stick clicks | crouch, zoom |
 | + | start | pause menu |
 | − | back | |
