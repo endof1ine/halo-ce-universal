@@ -67,8 +67,10 @@ void xgpu_text_append(struct xgpu_text *text, const char *format, ...) __attribu
 
 /* GLSL for an NV2A vertex program (the instruction words after the program
 header). Attributes whose bit is set in packed_attribute_mask are fed as
-NORMPACKED3 32-bit integers and unpacked in the shader. Returns a malloc'd
-string. */
+NORMPACKED3 32-bit integers and unpacked in the shader; those whose bit is set
+XGPU_VERTEX_BGRA_SHIFT higher are D3DCOLORs, in the BGRA byte order ES cannot
+read, which the shader swaps. Returns a malloc'd string. */
+#define XGPU_VERTEX_BGRA_SHIFT 16
 char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instruction_count,
 	unsigned long packed_attribute_mask);
 

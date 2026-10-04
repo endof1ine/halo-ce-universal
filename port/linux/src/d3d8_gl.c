@@ -1825,6 +1825,11 @@ static void parse_declaration(struct vertex_shader_object *object, const DWORD *
 				offsets[stream] += element->bytes;
 				if (element->type == D3DVSDT_NORMPACKED3)
 					object->packed_mask |= 1UL << element->reg;
+#ifdef HALO_GUEST
+				/* (ES has no BGRA attributes: the shader swaps a colour's bytes) */
+				if (element->type == D3DVSDT_D3DCOLOR)
+					object->packed_mask |= 1UL << (element->reg + XGPU_VERTEX_BGRA_SHIFT);
+#endif
 			}
 			break;
 		case D3DVSD_TOKEN_CONSTMEM:
@@ -2173,7 +2178,8 @@ with a draw of their own while the map loads the next time
 (xgpu_shader_warm_map, from scenario_tags_load). A record names the vertex
 program by its code, as its object differs from run to run. */
 
-#define SHADER_WARM_MAGIC 0x31525753UL /* 'SWR1' */
+/* (2: the packed masks have the colours' bits) */
+#define SHADER_WARM_MAGIC 0x32525753UL /* 'SWR2' */
 
 struct shader_warm_record
 {
@@ -2526,6 +2532,7 @@ void xgpu_shader_warm_map(const char *map)
 	unsigned long warmed = 0, records = 0;
 	unsigned long long start;
 	struct timespec time;
+	BOOL stale = FALSE;
 
 	if (shader_warm_file)
 	{
@@ -2549,7 +2556,10 @@ void xgpu_shader_warm_map(const char *map)
 
 		records++;
 		if (record.magic != SHADER_WARM_MAGIC)
+		{
+			stale = TRUE;
 			break;
+		}
 		for (program = created_vertex_shaders; program; program = program->next_created)
 		{
 			if (program->instruction_hash == record.instruction_hash &&
@@ -2580,6 +2590,10 @@ void xgpu_shader_warm_map(const char *map)
 		warmed++;
 	}
 	fclose(file);
+	/* (an older build's records: the map's are recorded again, which
+	appending after them would hide) */
+	if (stale)
+		remove(path);
 	if (warmed)
 	{
 		glBindVertexArray(device.vertex_array);
@@ -3731,48 +3745,6 @@ static unsigned long stream_upload(const void *data, unsigned long size)
 	return offset;
 }
 
-#ifdef HALO_GUEST
-/* stream_upload, with the D3DCOLOR elements of the stream turned from BGRA
-into the RGBA byte order ES reads */
-static unsigned long stream_upload_swizzled(const struct vertex_shader_object *declaration, unsigned long stream,
-	const unsigned char *data, unsigned long size, unsigned long stride)
-{
-	static unsigned char *scratch;
-	static unsigned long scratch_size;
-	unsigned long offsets[XGPU_VERTEX_ATTRIBUTE_COUNT];
-	unsigned long count = 0, index, vertex;
-
-	for (index = 0; index < declaration->element_count; index++)
-	{
-		const struct vertex_element *element = &declaration->elements[index];
-
-		if (element->stream == stream && element->type == D3DVSDT_D3DCOLOR)
-			offsets[count++] = element->offset;
-	}
-	if (!count || !stride)
-		return stream_upload(data, size);
-	if (scratch_size < size)
-	{
-		free(scratch);
-		scratch_size = size + 65536;
-		scratch = malloc(scratch_size);
-	}
-	memcpy(scratch, data, size);
-	for (vertex = 0; vertex + stride <= size; vertex += stride)
-	{
-		for (index = 0; index < count; index++)
-		{
-			unsigned char *color = scratch + vertex + offsets[index];
-			unsigned char blue = color[0];
-
-			color[0] = color[2];
-			color[2] = blue;
-		}
-	}
-	return stream_upload(scratch, size);
-}
-#endif
-
 static unsigned long index_upload(const void *data, unsigned long size)
 {
 	unsigned long offset;
@@ -3804,7 +3776,7 @@ static void attribute_format(const struct vertex_element *element, GLint *size, 
 	case D3DVSDT_FLOAT3: case D3DVSDT_FLOAT2H: *size = 3; *type = GL_FLOAT; break;
 	case D3DVSDT_FLOAT4: *size = 4; *type = GL_FLOAT; break;
 #ifdef HALO_GUEST
-	/* ES has no BGRA attributes: stream_upload_swizzled swaps the bytes */
+	/* ES has no BGRA attributes: the vertex shader swaps the bytes */
 	case D3DVSDT_D3DCOLOR: *size = 4; *type = GL_UNSIGNED_BYTE; *normalized = GL_TRUE; break;
 #else
 	case D3DVSDT_D3DCOLOR: *size = GL_BGRA; *type = GL_UNSIGNED_BYTE; *normalized = GL_TRUE; break;
@@ -3828,22 +3800,6 @@ static void attribute_format(const struct vertex_element *element, GLint *size, 
 /* upload vertices [first, first + count) of every stream the declaration
 uses and point the attributes at them; attribute data then starts at
 vertex 0 of the uploaded range */
-#ifdef HALO_GUEST
-/* ES has no BGRA attributes, so a stream with colours is swizzled as it is
-uploaded (stream_upload_swizzled) and cannot come from the mirror */
-static BOOL stream_has_colors(const struct vertex_shader_object *declaration, unsigned long stream)
-{
-	unsigned long index;
-
-	for (index = 0; index < declaration->element_count; index++)
-	{
-		if (declaration->elements[index].stream == stream && declaration->elements[index].type == D3DVSDT_D3DCOLOR)
-			return TRUE;
-	}
-	return FALSE;
-}
-#endif
-
 static void setup_streams(unsigned long first, unsigned long count)
 {
 	struct vertex_shader_object *declaration = device.vertex_shader;
@@ -3867,9 +3823,6 @@ static void setup_streams(unsigned long first, unsigned long count)
 		placed[stream] = TRUE;
 		stream_buffers[stream] = 0;
 		base = (unsigned long)PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data) + first * stride;
-#ifdef HALO_GUEST
-		if (!stream_has_colors(declaration, stream))
-#endif
 		if (mirror_range(base, bytes, &stream_buffers[stream], &stream_offsets[stream], NULL))
 			continue;
 		stream_buffers[stream] = 0;
@@ -3892,11 +3845,7 @@ static void setup_streams(unsigned long first, unsigned long count)
 			const unsigned char *base = PLATFORM_PHYSICAL_TO_VIRTUAL(device.streams[stream].data);
 			unsigned long bytes = stride ? stride * count : 64;
 
-#ifdef HALO_GUEST
-			stream_offsets[stream] = stream_upload_swizzled(declaration, stream, base + first * stride, bytes, stride);
-#else
 			stream_offsets[stream] = stream_upload(base + first * stride, bytes);
-#endif
 			stream_buffers[stream] = device.stream_buffer;
 			stats.streamed_bytes += bytes;
 		}
@@ -3915,8 +3864,21 @@ static void setup_streams(unsigned long first, unsigned long count)
 	}
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 	{
-		if (!enabled[index])
-			state_attribute_value(index, declaration->packed_mask & (1UL << index) ? NULL : device.attributes[index]);
+		const float *value = device.attributes[index];
+		float swapped[4];
+
+		if (enabled[index])
+			continue;
+		/* (a colour without its stream: the shader swaps its value too) */
+		if (declaration->packed_mask & (1UL << (index + XGPU_VERTEX_BGRA_SHIFT)))
+		{
+			swapped[0] = value[2];
+			swapped[1] = value[1];
+			swapped[2] = value[0];
+			swapped[3] = value[3];
+			value = swapped;
+		}
+		state_attribute_value(index, declaration->packed_mask & (1UL << index) ? NULL : value);
 	}
 }
 

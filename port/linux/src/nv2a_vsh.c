@@ -217,6 +217,8 @@ char *nv2a_vertex_shader_to_glsl(const DWORD *instructions, unsigned long instru
 	{
 		if (packed_attribute_mask & (1UL << index))
 			xgpu_text_append(&text, "\tvec4 v%lu = unpack_normpacked3(v%lu_packed);\n", index, index);
+		else if (packed_attribute_mask & (1UL << (index + XGPU_VERTEX_BGRA_SHIFT)))
+			xgpu_text_append(&text, "\tvec4 v%lu = v%lu_in.bgra;\n", index, index);
 		else
 			xgpu_text_append(&text, "\tvec4 v%lu = v%lu_in;\n", index, index);
 	}
