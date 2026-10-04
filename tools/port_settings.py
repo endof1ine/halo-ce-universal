@@ -15,7 +15,8 @@ mouse's controls, by the functions the PC version names for it.
 A row can be for some platforms only (menu_files.c's platform attribute:
 "desktop", "android", "switch", or several between spaces); each platform's
 rows are laid out one after another, with no gaps for the others'. On the
-Switch, Mouse Setup is Gyro Setup: the gyro turns the view as a mouse does.
+Switch, Mouse Setup is Gyro Setup (the gyro turns the view as a mouse does),
+and the profile menu has no Controls Setup (WIDGET_PATCHES).
 """
 
 from collections import defaultdict
@@ -192,12 +193,19 @@ STRING_OVERRIDES = {
 STRING_VARIANTS = {
     f"{PE}/profile_edit_options": {3: [("MOUSE SETUP", NOT_SWITCH), ("GYRO SETUP", "switch")]},
     f"{PE}/profile_edit_descriptions": {
+        1: [("Choose the keys and mouse\\nbuttons for each action.\\n\\nProfile:", NOT_SWITCH)],
         3: [("Adjust the mouse's sensitivity\\nand aiming.\\n\\nProfile:", NOT_SWITCH),
             ("Aim by turning the controller,\\nand how far it turns.\\n\\nProfile:", "switch")],
         5: [("Choose a window or the full\\nscreen, the frame rate and more.\\n\\nProfile:", NOT_SWITCH),
             ("Choose the resolution, the\\nframe rate and more.\\n\\nProfile:", "switch")],
     },
 }
+
+
+# bitmaps' frames that are for some platforms only (by their place), as
+# STRING_VARIANTS: the profile menu's pictures, without Controls Setup's on
+# the Switch
+FRAME_PLATFORMS = {f"{PE}/profile_options": {1: NOT_SWITCH}}
 
 
 def string_entries(name: str, strings: list) -> list:
@@ -469,9 +477,21 @@ STRING_OVERRIDES.update({
         "SHORT RANGE", "HUMAN", "COVENANT", "CLASSIC", "HEAVY WEAPONS", "NO GRENADES"],
 })
 
+# the profile menu on the Switch: no Controls Setup, the keyboard's (each
+# item below it up one place: a list's items are 33 units apart; and its
+# description and picture, which go by the item's place, left out)
+_SWITCH_UP = [("gamepads_profile_item", 0, -33), ("mouse_settings_profile_item", 0, -33),
+              ("audio_settings_profile_item", 0, -33), ("video_settings_profile_item", 0, -33),
+              ("network_settings_profile_item", 0, -34), ("color_profile_item", 32, 0), ("about_item", 32, -1)]
+
 # changes to the PC version's widgets (by our names): attributes set, all
-# their handlers replaced, children added
+# their handlers replaced, children added, children placed by platform
+# ("places": a child's (x, y, platform) for each)
 WIDGET_PATCHES = {
+    f"{PE}/profile_edit_select_list": {"places": {
+        f"{PE}/controller_setup_profile_item": [(0, 0, NOT_SWITCH)],
+        **{f"{PE}/{item}": [(0, y, NOT_SWITCH), (0, switch_y, "switch")] for item, y, switch_y in _SWITCH_UP},
+    }},
     # (straight to their screens: no "checking for updates" dialog, which
     # asked the PC version's servers)
     f"{MT}/multiplayer_type_join_internet_item": {"set": {"string_index": 6}, "handlers": [

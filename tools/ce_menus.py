@@ -348,18 +348,20 @@ class Art:
         else:
             indices = list(range(len(data)))
         lines = [f"\t<bitmap{attributes([('name', our_name(tag))])}>"]
-        for index in indices:
+        platforms = port_settings.FRAME_PLATFORMS.get(our_name(tag), {})
+        for position, index in enumerate(indices):
             width, height = data[index]["width"], data[index]["height"]
             name = self.frame_sources(relative, index, len(data))[-1]
+            platform = platforms.get(position)
             if name in XBOX_FRAMES and not any((self.redraws / f"{source}.svg").is_file()
                                                for source in self.frame_sources(relative, index, len(data))):
                 self.xbox_frames.append((name, tag, XBOX_FRAMES[name]))
-                lines.append(f"\t\t<frame{attributes([('map', tag), ('index', XBOX_FRAMES[name])])}/>")
+                lines.append(f"\t\t<frame{attributes([('map', tag), ('index', XBOX_FRAMES[name]), ('platform', platform)])}/>")
                 continue
             png = f"ce/{relative}__{index}.png"
             self.draw(relative, index, len(data), width, height, MENUS / png, self.shown.get(tag, []))
             self.pngs.append(png)
-            lines.append(f"\t\t<frame{attributes([('png', png), ('width', width), ('height', height)])}/>")
+            lines.append(f"\t\t<frame{attributes([('png', png), ('width', width), ('height', height), ('platform', platform)])}/>")
         lines.append("\t</bitmap>")
         return "\n".join(lines)
 
@@ -515,9 +517,11 @@ def widget_xml(tag: str, widget: dict, tags: Tags, functions: list, inputs: list
         x, y = CHILD_OFFSETS.get((tag, child_tag), (child["horizontal offset"], child["vertical offset"]))
         name = patch.get("swap", {}).get(our_name(child_tag), our_name(child_tag))
         lines += [f"{inner}{line}" for line in patch.get("insert_before", {}).get(our_name(child_tag), [])]
-        pairs = [("widget", name), ("x", x or None), ("y", y or None),
-                 ("controller", str(child["custom controller index"] + 1) if child["flags"] & 1 else None)]
-        lines.append(f"{inner}<child{attributes(pairs)}/>")
+        controller = str(child["custom controller index"] + 1) if child["flags"] & 1 else None
+        for x, y, platform in patch.get("places", {}).get(name, [(x, y, None)]):
+            pairs = [("widget", name), ("x", x or None), ("y", y or None), ("controller", controller),
+                     ("platform", platform)]
+            lines.append(f"{inner}<child{attributes(pairs)}/>")
     lines += [f"{inner}{line}" for line in patch.get("children", [])]
     lines.append(f"{indent}</widget>")
     return lines

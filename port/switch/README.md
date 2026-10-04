@@ -102,7 +102,7 @@ On player 1's controller, hold these buttons together for one second:
 
 Most settings are in the game's menus: Settings, Profiles, then a profile.
 Changes take effect when you select OK, except Background Shaders (at the
-next start).
+next start). The Switch has no Controls Setup: it sets the keyboard's keys.
 
 | Menu | Switch settings |
 | --- | --- |
