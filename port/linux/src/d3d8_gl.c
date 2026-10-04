@@ -4250,7 +4250,7 @@ static const WORD *quad_indices_reused(const WORD *indices, unsigned long count,
 /* a quad list without indices. On the Switch its triangles, the same every
 draw, stay in an index buffer of their own, made once, instead of being
 made and streamed each draw */
-static void quad_list_draw(unsigned long vertex_count)
+static void quad_list_draw(unsigned long vertex_count, unsigned long first)
 {
 	unsigned long count;
 	WORD *indices;
@@ -4281,13 +4281,17 @@ static void quad_list_draw(unsigned long vertex_count)
 			free(indices);
 			quads_held = grown;
 		}
-		glDrawElements(GL_TRIANGLES, (GLsizei)(quads * 6), GL_UNSIGNED_SHORT, NULL);
+		glDrawElementsBaseVertex(GL_TRIANGLES, (GLsizei)(quads * 6), GL_UNSIGNED_SHORT, NULL, (GLint)first);
 		return;
 	}
 #endif
 	indices = quad_indices(NULL, vertex_count, &count);
-	glDrawElements(GL_TRIANGLES, (GLsizei)count, GL_UNSIGNED_SHORT,
-		(const void *)index_upload(indices, count * sizeof(WORD)));
+	if (first)
+		glDrawElementsBaseVertex(GL_TRIANGLES, (GLsizei)count, GL_UNSIGNED_SHORT,
+			(const void *)index_upload(indices, count * sizeof(WORD)), (GLint)first);
+	else
+		glDrawElements(GL_TRIANGLES, (GLsizei)count, GL_UNSIGNED_SHORT,
+			(const void *)index_upload(indices, count * sizeof(WORD)));
 	free(indices);
 }
 
@@ -4312,7 +4316,7 @@ void WINAPI D3DDevice_DrawVertices(D3DPRIMITIVETYPE primitive_type, UINT start_v
 	trace_draw("draw", primitive_type, vertex_count, NULL);
 	setup_streams(start_vertex, vertex_count);
 	if (primitive_type == D3DPT_QUADLIST)
-		quad_list_draw(vertex_count);
+		quad_list_draw(vertex_count, 0);
 	else
 		glDrawArrays(primitive_mode(primitive_type), 0, (GLsizei)vertex_count);
 	gl_check_errors("draw");
@@ -4406,23 +4410,40 @@ static void immediate_emit(void)
 void WINAPI D3DDevice_End(void)
 {
 	unsigned long stride = XGPU_VERTEX_ATTRIBUTE_COUNT * 4 * sizeof(float);
-	unsigned long offset, index, count = device.immediate_count;
+	unsigned long offset, index, count = device.immediate_count, first = 0, base;
 	D3DPRIMITIVETYPE type = device.immediate_type;
 
 	device.immediate_active = FALSE;
 	if (!count || !prepare_draw(TRUE))
 		return;
 	trace_draw("immediate", type, count, device.immediate_vertices);
+#ifdef HALO_SWITCH
+	/* (the vertices at a whole vertex's place in the buffer: the attributes
+	point at its start, as for the draws before, which the GL state cache
+	then leaves be, and the draw starts at that vertex; 16 attribute pointers
+	set again each draw were the driver's to validate each time) */
+	{
+		unsigned long padding = (stride - device.stream_offset % stride) % stride;
+
+		stream_reserve(count * stride + padding);
+		device.stream_offset += (stride - device.stream_offset % stride) % stride;
+	}
 	offset = stream_upload(device.immediate_vertices, count * stride);
+	first = offset / stride;
+	base = 0;
+#else
+	offset = stream_upload(device.immediate_vertices, count * stride);
+	base = offset;
+#endif
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
 	{
 		state_attribute_pointer(index, device.stream_buffer, 4, GL_FLOAT, GL_FALSE, FALSE, (GLsizei)stride,
-			offset + index * 4 * sizeof(float));
+			base + index * 4 * sizeof(float));
 	}
 	if (type == D3DPT_QUADLIST)
-		quad_list_draw(count);
+		quad_list_draw(count, first);
 	else
-		glDrawArrays(primitive_mode(type), 0, (GLsizei)count);
+		glDrawArrays(primitive_mode(type), (GLint)first, (GLsizei)count);
 	gl_check_errors("immediate draw");
 }
 
