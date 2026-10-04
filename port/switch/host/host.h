@@ -37,8 +37,12 @@ void host_exit(int code) __attribute__((noreturn));
 int host_errno(void);
 /* a newlib errno value as the guest's (Linux) one */
 int host_linux_errno(int error);
-/* a true/false setting of config.toml, false when it is missing */
+/* a true/false setting of config.toml, false (or missing) when it is not
+there */
 int host_config_boolean(const char *key);
+int host_config_boolean_default(const char *key, int missing);
+/* the sampling profiler of the main thread (host_profile.c) */
+void host_profile_start(void);
 
 /* ---------- memory below 4 GB (host_memory.c)
 

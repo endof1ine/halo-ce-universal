@@ -163,7 +163,7 @@ void host_exit(int code)
 
 /* ---------- settings */
 
-int host_config_boolean(const char *key)
+int host_config_boolean_default(const char *key, int missing)
 {
 	static toml_result_t config;
 	static int loaded;
@@ -175,9 +175,14 @@ int host_config_boolean(const char *key)
 		loaded = 1;
 	}
 	if (!config.ok)
-		return 0;
+		return missing;
 	value = toml_seek(config.toptab, key);
-	return value.type == TOML_BOOLEAN && value.u.boolean;
+	return value.type == TOML_BOOLEAN ? value.u.boolean : missing;
+}
+
+int host_config_boolean(const char *key)
+{
+	return host_config_boolean_default(key, 0);
 }
 
 /* ---------- paths */
@@ -367,6 +372,7 @@ int main(int argc, char *argv[])
 	/* no dimming or sleeping while the game plays (it has no idle input
 	during a cutscene) */
 	appletSetMediaPlaybackState(true);
+	host_profile_start();
 	host_logf(HOST_LOG_INFO, "starting the game (data %s, saves %s)", HOST_DATA_ROOT, HOST_SAVE_ROOT);
 	host_thread_run_on_guest_stack(game_main, (void *)(uintptr_t)boot, MAIN_STACK_SIZE);
 	host_fatal("the game returned");
