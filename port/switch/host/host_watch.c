@@ -15,7 +15,9 @@ enable_user_exception_handlers setting), so here no write faults:
   reads into the window (xbox_files.c) and the D3D locks (d3d8_resources.c)
   call memory_watch_prepare_write;
 - the others are found by comparison. Watching a page copies it into a
-  shadow of the window; a thread compares watched pages with their copies,
+  shadow of the window (allocated in blocks as pages are first watched: the
+  renderer watches a fraction of the window); a thread compares watched
+  pages with their copies,
   often for pages that changed lately ("hot") and ever less often (up to
   every 64 passes) for pages that keep their contents. Asking for a hot
   page's generation compares it at once, so dynamic data is never drawn
@@ -35,6 +37,9 @@ have found late, to find the writes worth announcing.
 
 #define PAGE 0x1000u
 #define PAGE_COUNT (HALO_GUEST_WINDOW_SIZE / PAGE)
+/* the shadow's blocks: 256 KB */
+#define BLOCK_PAGES 64u
+#define BLOCK_COUNT (PAGE_COUNT / BLOCK_PAGES)
 /* passes between two comparisons of a page that keeps its contents */
 #define LONGEST_INTERVAL 64
 /* a pass a frame */
@@ -47,7 +52,9 @@ enum
 };
 
 static Mutex watch_lock;
-static uint8_t *shadow;
+static uint8_t *shadow_blocks[BLOCK_COUNT];
+static uint32_t shadow_block_count;
+static int started;
 static uint8_t page_flags[PAGE_COUNT];
 static uint8_t page_interval[PAGE_COUNT];
 static uint32_t page_next_pass[PAGE_COUNT];
@@ -86,11 +93,28 @@ static void page_written(uint32_t page)
 	__atomic_add_fetch(&watch_serial, 1, __ATOMIC_RELEASE);
 }
 
+/* the page's copy, its block allocated the first time (NULL when there is
+no memory for it). Called with the lock */
+static uint8_t *page_shadow(uint32_t page)
+{
+	uint8_t **block = &shadow_blocks[page / BLOCK_PAGES];
+
+	if (!*block)
+	{
+		*block = malloc((size_t)BLOCK_PAGES * PAGE);
+		if (!*block)
+			return NULL;
+		if (!(++shadow_block_count % 64))
+			host_logf(HOST_LOG_INFO, "write tracking: %u MB of copies", shadow_block_count / 4);
+	}
+	return *block + (size_t)(page % BLOCK_PAGES) * PAGE;
+}
+
 /* compares a watched page with its copy; 1 if it changed. Called with the
 lock */
 static int page_check(uint32_t page)
 {
-	if (!memcmp(page_address(page), shadow + (size_t)page * PAGE, PAGE))
+	if (!memcmp(page_address(page), page_shadow(page), PAGE))
 		return 0;
 	page_written(page);
 	return 1;
@@ -151,13 +175,8 @@ void host_watch_start(void)
 
 void host_memory_watch_initialize(void)
 {
-	static int started;
-
 	if (started)
 		return;
-	shadow = malloc(HALO_GUEST_WINDOW_SIZE);
-	if (!shadow)
-		host_fatal("There is not enough memory for the game's write tracking.");
 	if (host_native_thread_create(watch_thread, NULL, 64 * 1024, _host_thread_background) != 0)
 		host_fatal("Cannot start the write tracking thread.");
 	started = 1;
@@ -167,14 +186,23 @@ void host_memory_watch_protect(uint32_t address, uint32_t size)
 {
 	uint32_t first, last, page;
 
-	if (!shadow || !page_range(address, size, &first, &last))
+	if (!started || !page_range(address, size, &first, &last))
 		return;
 	mutexLock(&watch_lock);
 	for (page = first; page <= last; page++)
 	{
+		uint8_t *copy;
+
 		if (page_flags[page] & _page_watched)
 			continue;
-		memcpy(shadow + (size_t)page * PAGE, page_address(page), PAGE);
+		copy = page_shadow(page);
+		if (!copy)
+		{
+			/* (no memory for its copy: always taken for written) */
+			page_written(page);
+			continue;
+		}
+		memcpy(copy, page_address(page), PAGE);
 		page_flags[page] |= _page_watched;
 		page_interval[page] = 1;
 		page_next_pass[page] = pass + 1;
