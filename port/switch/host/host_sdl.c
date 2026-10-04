@@ -79,6 +79,19 @@ void host_sdl_queue_gamepad_added(uint32_t id)
 	queue_event(&event);
 }
 
+void host_sdl_queue_mouse_motion(float x, float y)
+{
+	SDL_Event event;
+
+	memset(&event, 0, sizeof(event));
+	event.type = SDL_EVENT_MOUSE_MOTION;
+	event.common.timestamp = armTicksToNs(armGetSystemTick());
+	event.motion.windowID = WINDOW_HANDLE;
+	event.motion.xrel = x;
+	event.motion.yrel = y;
+	queue_event(&event);
+}
+
 /* the applet's messages: HOME and sleep take the focus, the system asks
 the program to close */
 void host_sdl_applet_update(void)

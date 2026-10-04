@@ -41,6 +41,8 @@ int host_linux_errno(int error);
 there */
 int host_config_boolean(const char *key);
 int host_config_boolean_default(const char *key, int missing);
+/* a number setting of config.toml (read from the file at each call) */
+double host_config_real(const char *key, double missing);
 /* the sampling profiler of the main thread (host_profile.c) */
 void host_profile_start(void);
 
@@ -133,5 +135,7 @@ void host_input_stop_rumble(void);
 void host_audio_pause(int paused);
 /* SDL3 events made by the host (host_sdl.c) */
 void host_sdl_queue_gamepad_added(uint32_t id);
+/* relative mouse motion: the platform layer's mouse look (gyro aiming) */
+void host_sdl_queue_mouse_motion(float x, float y);
 
 #endif

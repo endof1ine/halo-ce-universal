@@ -185,6 +185,23 @@ int host_config_boolean(const char *key)
 	return host_config_boolean_default(key, 0);
 }
 
+double host_config_real(const char *key, double missing)
+{
+	toml_result_t config = toml_parse_file_ex(HOST_DATA_ROOT "/config.toml");
+	toml_datum_t value;
+	double result = missing;
+
+	if (!config.ok)
+		return missing;
+	value = toml_seek(config.toptab, key);
+	if (value.type == TOML_FP64)
+		result = value.u.fp64;
+	else if (value.type == TOML_INT64)
+		result = (double)value.u.int64;
+	toml_free(config);
+	return result;
+}
+
 /* ---------- paths */
 
 void host_android_path(int which, char *buffer, uint32_t size)

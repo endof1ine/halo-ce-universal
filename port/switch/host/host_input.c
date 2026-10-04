@@ -14,11 +14,18 @@ are the triggers at full travel.
 
 Rumble: the Xbox's low-frequency (heavy) motor plays in HD rumble's low
 band and its high-frequency one in the high band.
+
+Gyro aiming (input.gyro_aim = true in config.toml; off unless set): player
+1's controller turned turns the view as much (input.gyro_sensitivity, 1 by
+default; input.gyro_invert_x and _y), through the platform layer's mouse
+look (xinput_sdl.c), so the stick's acceleration does not apply to it. The
+stick aims as well.
 */
 
 #include "host.h"
 
 #include <SDL3/SDL_gamepad.h>
+#include <math.h>
 #include <string.h>
 #include <switch.h>
 
@@ -30,6 +37,23 @@ band and its high-frequency one in the high band.
 
 static PadState pads[PLAYERS];
 static int by_position;
+
+/* gyro aiming: the radians of the platform layer's mouse look per unit of
+motion (xinput_sdl.c), and below what the controller is held still */
+#define MOUSE_LOOK_RADIANS 0.0022f
+#define GYRO_DEADZONE 0.004f
+#define GYRO_STYLES 3
+
+static struct
+{
+	int enabled;
+	float sensitivity_x, sensitivity_y;
+	/* player 1's sensors in each style: Pro, the pair of Joy-Con (the
+	right one), attached to the console (the right one) */
+	HidSixAxisSensorHandle handles[GYRO_STYLES][2];
+	int started[GYRO_STYLES];
+	uint64_t last_tick;
+} gyro;
 static int pad_connected[PLAYERS];
 static Mutex input_lock;
 
@@ -53,6 +77,91 @@ void host_input_initialize(void)
 	padInitialize(&pads[0], HidNpadIdType_No1, HidNpadIdType_Handheld);
 	for (player = 1; player < PLAYERS; player++)
 		padInitialize(&pads[player], (HidNpadIdType)(HidNpadIdType_No1 + player));
+	gyro.enabled = host_config_boolean("input.gyro_aim");
+	if (gyro.enabled)
+	{
+		float sensitivity = (float)host_config_real("input.gyro_sensitivity", 1.0);
+
+		if (sensitivity <= 0.0f)
+			sensitivity = 1.0f;
+		gyro.sensitivity_x = host_config_boolean("input.gyro_invert_x") ? -sensitivity : sensitivity;
+		gyro.sensitivity_y = host_config_boolean("input.gyro_invert_y") ? -sensitivity : sensitivity;
+		host_logf(HOST_LOG_INFO, "gyro aiming on, sensitivity %.2f", sensitivity);
+	}
+}
+
+/* the sensor of player 1's controller in its style, started the first time;
+NULL when it has none */
+static const HidSixAxisSensorHandle *gyro_sensor(void)
+{
+	u32 styles = padGetStyleSet(&pads[0]);
+	int style, count = 1, use = 0;
+	HidNpadIdType id = HidNpadIdType_No1;
+	HidNpadStyleTag tag;
+
+	if (styles & HidNpadStyleTag_NpadHandheld)
+	{
+		style = 2;
+		tag = HidNpadStyleTag_NpadHandheld;
+		id = HidNpadIdType_Handheld;
+		count = 2;
+		use = 1;
+	}
+	else if (styles & HidNpadStyleTag_NpadJoyDual)
+	{
+		style = 1;
+		tag = HidNpadStyleTag_NpadJoyDual;
+		count = 2;
+		use = 1;
+	}
+	else if (styles & HidNpadStyleTag_NpadFullKey)
+	{
+		style = 0;
+		tag = HidNpadStyleTag_NpadFullKey;
+	}
+	else
+	{
+		return NULL;
+	}
+	if (!gyro.started[style])
+	{
+		int index;
+
+		if (R_FAILED(hidGetSixAxisSensorHandles(gyro.handles[style], count, id, tag)))
+			return NULL;
+		for (index = 0; index < count; index++)
+			hidStartSixAxisSensor(gyro.handles[style][index]);
+		gyro.started[style] = 1;
+	}
+	return &gyro.handles[style][use];
+}
+
+/* the view's turn since the last poll, as relative mouse motion */
+static void gyro_update(void)
+{
+	const HidSixAxisSensorHandle *sensor;
+	HidSixAxisSensorState state;
+	uint64_t tick = armGetSystemTick();
+	float seconds, yaw, pitch;
+
+	if (!gyro.enabled || !pad_connected[0])
+		return;
+	seconds = gyro.last_tick ? (float)armTicksToNs(tick - gyro.last_tick) / 1e9f : 0.0f;
+	gyro.last_tick = tick;
+	/* (after a pause - a menu, HOME - the controller's turn is not the view's) */
+	if (seconds <= 0.0f || seconds > 0.1f)
+		return;
+	sensor = gyro_sensor();
+	if (!sensor || !hidGetSixAxisSensorStates(*sensor, &state, 1))
+		return;
+	/* angular velocity in turns a second: z is about the controller's
+	vertical axis (yaw), x across it (pitch) */
+	yaw = fabsf(state.angular_velocity.z) < GYRO_DEADZONE ? 0.0f : state.angular_velocity.z;
+	pitch = fabsf(state.angular_velocity.x) < GYRO_DEADZONE ? 0.0f : state.angular_velocity.x;
+	if (yaw == 0.0f && pitch == 0.0f)
+		return;
+	host_sdl_queue_mouse_motion(-yaw * 6.2831853f * seconds * gyro.sensitivity_x / MOUSE_LOOK_RADIANS,
+		-pitch * 6.2831853f * seconds * gyro.sensitivity_y / MOUSE_LOOK_RADIANS);
 }
 
 void host_input_update(void)
@@ -74,6 +183,7 @@ void host_input_update(void)
 		}
 		pad_connected[player] = connected;
 	}
+	gyro_update();
 	mutexUnlock(&input_lock);
 }
 
