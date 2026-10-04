@@ -7102,11 +7102,14 @@ static boolean ui_check_for_pause_game(
 {
 	/* port: the platform layer's (port/linux/src/sdl_platform.c) */
 	extern int halo_pause_requested(void);
+	extern void halo_pause_request_handled(void);
 	boolean pause_pressed = FALSE;
 	boolean network_game = network_game_is_active();
 	short controller_index = NONE;
 	/* port: the system's HOME menu or sleep (the Switch's) opens the pause
-	menu as player 1's Start does, but never closes it */
+	menu as player 1's Start does, but never closes it; kept through a
+	cinematic or while pausing is held off, dropped where there is nothing to
+	pause or a menu is already open */
 	boolean system_pause = halo_pause_requested();
 
 	if (game_in_progress() &&
@@ -7137,6 +7140,16 @@ static boolean ui_check_for_pause_game(
 				break;
 			}
 		}
+	}
+	if (system_pause &&
+		(pause_pressed ||
+		!game_in_progress() ||
+		game_connection() == _game_connection_film_playback ||
+		we_are_at_the_main_menu ||
+		!local_player_exists(0) ||
+		widget_globals.active_widgets[0]))
+	{
+		halo_pause_request_handled();
 	}
 	if (pause_pressed)
 	{

@@ -915,10 +915,12 @@ static volatile int pause_requested;
 
 int halo_pause_requested(void)
 {
-	int requested = pause_requested;
+	return pause_requested;
+}
 
+void halo_pause_request_handled(void)
+{
 	pause_requested = 0;
-	return requested;
 }
 
 void platform_scoreboard_scroll(int open, long *notches, long *pages)
