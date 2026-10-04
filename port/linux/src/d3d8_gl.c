@@ -517,6 +517,9 @@ struct gl_device
 	/* with atomic counters: one counter per test, used as a ring; the
 	counter a test ended in, per result slot */
 	GLuint visibility_counters;
+	/* a zero, which the GPU copies over a counter as a test begins: in order
+	with the frame's staging copy, which may still read it */
+	GLuint visibility_zero;
 	unsigned long counter_next;
 	unsigned long counter_active;
 	unsigned long counter_of_slot[VISIBILITY_TEST_SLOTS];
@@ -1227,6 +1230,14 @@ static void gl_initialize(void)
 		glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, device.visibility_counters);
 		glBufferData(GL_ATOMIC_COUNTER_BUFFER, VISIBILITY_TEST_SLOTS * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);
 		glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
+		{
+			const GLuint zero = 0;
+
+			glGenBuffers(1, &device.visibility_zero);
+			glBindBuffer(GL_COPY_READ_BUFFER, device.visibility_zero);
+			glBufferData(GL_COPY_READ_BUFFER, sizeof(zero), &zero, GL_STATIC_DRAW);
+			glBindBuffer(GL_COPY_READ_BUFFER, 0);
+		}
 		glGenBuffers(VISIBILITY_STAGING_FRAMES, device.visibility_staging);
 		for (index = 0; index < VISIBILITY_STAGING_FRAMES; index++)
 		{
@@ -1689,14 +1700,14 @@ void WINAPI D3DDevice_BeginVisibilityTest(void)
 #ifdef HALO_GUEST
 	if (xgpu_capabilities.atomic_counters)
 	{
-		const GLuint zero = 0;
-
 		device.counter_next = (device.counter_next + 1) % VISIBILITY_TEST_SLOTS;
 		device.counter_active = device.counter_next;
-		glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, device.visibility_counters);
-		host_gl_buffer_write(GL_ATOMIC_COUNTER_BUFFER, (unsigned int)(device.counter_active * sizeof(GLuint)),
-			sizeof(zero), &zero);
-		glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
+		glBindBuffer(GL_COPY_READ_BUFFER, device.visibility_zero);
+		glBindBuffer(GL_COPY_WRITE_BUFFER, device.visibility_counters);
+		glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0,
+			(GLintptr)(device.counter_active * sizeof(GLuint)), sizeof(GLuint));
+		glBindBuffer(GL_COPY_READ_BUFFER, 0);
+		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
 		return;
 	}
 #endif
@@ -2396,6 +2407,67 @@ struct shader_warm_record
 
 static char shader_warm_map[64];
 static FILE *shader_warm_file;
+/* the map's records (their hashes, an open-addressed table): in its file,
+or appended since. A record is written once, not again at each run's first
+draw of a program the warm-up left (late, or its vertex shader not yet
+made), nor at a relink */
+static unsigned long long *shader_warm_known;
+static unsigned long shader_warm_known_count, shader_warm_known_size;
+
+static unsigned long long shader_warm_hash(const struct shader_warm_record *record)
+{
+	const unsigned char *bytes = (const unsigned char *)record;
+	unsigned long long hash = 14695981039346656037ULL;
+	size_t index;
+
+	for (index = 0; index < sizeof(*record); index++)
+		hash = (hash ^ bytes[index]) * 1099511628211ULL;
+	return hash ? hash : 1;
+}
+
+/* notes the record; FALSE if it already was */
+static BOOL shader_warm_note(const struct shader_warm_record *record)
+{
+	unsigned long long hash = shader_warm_hash(record);
+	unsigned long index;
+
+	if ((shader_warm_known_count + 1) * 2 > shader_warm_known_size)
+	{
+		unsigned long size = shader_warm_known_size ? shader_warm_known_size * 2 : 1024;
+		unsigned long long *table = calloc(size, sizeof(*table));
+		unsigned long old;
+
+		if (!table)
+			return TRUE;
+		for (old = 0; old < shader_warm_known_size; old++)
+		{
+			if (!shader_warm_known[old])
+				continue;
+			for (index = shader_warm_known[old] & (size - 1); table[index]; index = (index + 1) & (size - 1))
+				;
+			table[index] = shader_warm_known[old];
+		}
+		free(shader_warm_known);
+		shader_warm_known = table;
+		shader_warm_known_size = size;
+	}
+	for (index = hash & (shader_warm_known_size - 1); shader_warm_known[index];
+		index = (index + 1) & (shader_warm_known_size - 1))
+	{
+		if (shader_warm_known[index] == hash)
+			return FALSE;
+	}
+	shader_warm_known[index] = hash;
+	shader_warm_known_count++;
+	return TRUE;
+}
+
+static void shader_warm_forget(void)
+{
+	if (shader_warm_known)
+		memset(shader_warm_known, 0, shader_warm_known_size * sizeof(*shader_warm_known));
+	shader_warm_known_count = 0;
+}
 
 static void shader_warm_path(const char *map, char *path, size_t size)
 {
@@ -2408,6 +2480,15 @@ static void shader_warm_record(struct vertex_shader_object *program, BOOL immedi
 	struct shader_warm_record record;
 
 	if (!shader_warm_map[0] || !program->instructions)
+		return;
+	memset(&record, 0, sizeof(record));
+	record.magic = SHADER_WARM_MAGIC;
+	record.instruction_hash = (DWORD)program->instruction_hash;
+	record.instruction_count = (DWORD)program->instruction_count;
+	record.packed_mask = (DWORD)packed_mask;
+	record.immediate = immediate ? 1 : 0;
+	record.key = *key;
+	if (!shader_warm_note(&record))
 		return;
 	if (!shader_warm_file)
 	{
@@ -2423,13 +2504,6 @@ static void shader_warm_record(struct vertex_shader_object *program, BOOL immedi
 			return;
 		}
 	}
-	memset(&record, 0, sizeof(record));
-	record.magic = SHADER_WARM_MAGIC;
-	record.instruction_hash = (DWORD)program->instruction_hash;
-	record.instruction_count = (DWORD)program->instruction_count;
-	record.packed_mask = (DWORD)packed_mask;
-	record.immediate = immediate ? 1 : 0;
-	record.key = *key;
 	fwrite(&record, sizeof(record), 1, shader_warm_file);
 	fflush(shader_warm_file);
 }
@@ -2486,6 +2560,7 @@ void xgpu_shader_warm_map(const char *map)
 		fclose(shader_warm_file);
 		shader_warm_file = NULL;
 	}
+	shader_warm_forget();
 	snprintf(shader_warm_map, sizeof(shader_warm_map), "%s", map ? map : "");
 	if (!shader_warm_map[0] || config_boolean("debug.no_shader_warm"))
 		return;
@@ -2507,6 +2582,7 @@ void xgpu_shader_warm_map(const char *map)
 			stale = TRUE;
 			break;
 		}
+		shader_warm_note(&record);
 		for (program = created_vertex_shaders; program; program = program->next_created)
 		{
 			if (program->instruction_hash == record.instruction_hash &&
@@ -2539,7 +2615,10 @@ void xgpu_shader_warm_map(const char *map)
 	/* (an older build's records: the map's are recorded again, which
 	appending after them would hide) */
 	if (stale)
+	{
 		remove(path);
+		shader_warm_forget();
+	}
 	if (warmed)
 	{
 		glBindVertexArray(device.vertex_array);
@@ -2711,6 +2790,10 @@ static GLuint framebuffer_get(GLuint color, GLuint depth);
 static void copy_level_by_blit(GLuint source, GLuint destination, GLint level, GLsizei width, GLsizei height)
 {
 	static GLuint draw_framebuffer;
+	/* the draw's target and scissor, which prepare_draw set before its
+	textures: put back after (a new framebuffer_get forgets them) */
+	GLuint target = gl_state.framebuffer;
+	unsigned char scissor_test = gl_state.scissor_test;
 
 	if (!draw_framebuffer)
 		glGenFramebuffers(1, &draw_framebuffer);
@@ -2719,9 +2802,11 @@ static void copy_level_by_blit(GLuint source, GLuint destination, GLint level, G
 	glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, destination, level);
 	glDisable(GL_SCISSOR_TEST);
 	glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	/* the blit bypasses the cached state, so the next draw must re-apply it */
-	gl_state_forget(_gl_state_framebuffer | _gl_state_masks);
+	glBindFramebuffer(GL_FRAMEBUFFER, target != 0xffffffffu ? target : 0);
+	gl_state.framebuffer = target;
+	if (scissor_test == 1)
+		glEnable(GL_SCISSOR_TEST);
+	gl_state.scissor_test = scissor_test;
 }
 #endif
 
@@ -2794,6 +2879,14 @@ static GLuint mip_composite_get(const struct xgpu_texture_description *descripti
 
 static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale[4][4])
 {
+	/* each stage's texture found (uploaded, composited) before any is bound:
+	an upload binds on the active unit, a stage already bound */
+	struct
+	{
+		GLenum target;
+		GLuint texture;
+		BOOL used, mipmapped, hires;
+	} bound[D3DTSS_MAXSTAGES];
 	int stage;
 
 	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
@@ -2803,9 +2896,9 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 
 		texture_scale[stage][0] = texture_scale[stage][1] = 1.0f;
 		texture_scale[stage][2] = texture_scale[stage][3] = 1.0f;
+		bound[stage].used = FALSE;
 		if (!texture || !texture->Data || mode == 0 || mode == 0x04 || mode == 0x05 || mode == 0x11)
 		{
-			state_texture(stage, GL_TEXTURE_2D, 0);
 			key->sampler_type[stage] = mode == 0x11 ? _xgpu_sampler_2d : _xgpu_sampler_none;
 			continue;
 		}
@@ -2843,16 +2936,29 @@ static void bind_textures(struct nv2a_pixel_shader_key *key, float texture_scale
 					texture_scale[stage][1] = 1.0f / (float)description.height;
 				}
 			}
-			state_texture(stage, gl_target, gl_texture);
-#ifndef HALO_SWITCH
-			state_sampler(stage, device.samplers[stage]);
-#endif
-			configure_sampler(stage, description.levels > 1, description.hires);
+			bound[stage].used = TRUE;
+			bound[stage].target = gl_target;
+			bound[stage].texture = gl_texture;
+			bound[stage].mipmapped = description.levels > 1;
+			bound[stage].hires = description.hires;
 			if (stage == 0)
 				key->coverage_alpha = description.hires_coverage != FALSE;
 			key->sampler_type[stage] = gl_target == GL_TEXTURE_CUBE_MAP ? _xgpu_sampler_cube :
 				gl_target == GL_TEXTURE_3D ? _xgpu_sampler_3d : _xgpu_sampler_2d;
 		}
+	}
+	for (stage = 0; stage < D3DTSS_MAXSTAGES; stage++)
+	{
+		if (!bound[stage].used)
+		{
+			state_texture(stage, GL_TEXTURE_2D, 0);
+			continue;
+		}
+		state_texture(stage, bound[stage].target, bound[stage].texture);
+#ifndef HALO_SWITCH
+		state_sampler(stage, device.samplers[stage]);
+#endif
+		configure_sampler(stage, bound[stage].mipmapped, bound[stage].hires);
 	}
 }
 
@@ -3521,6 +3627,9 @@ static void mirror_buffer_write(unsigned long segment, unsigned long offset, uns
 	{
 		unsigned long staged = stream_upload((const void *)address, size);
 
+		/* (an upload into a ring buffer not mapped for good binds it to
+		GL_COPY_WRITE_BUFFER) */
+		glBindBuffer(GL_COPY_WRITE_BUFFER, mirror.buffers[segment]);
 		glBindBuffer(GL_COPY_READ_BUFFER, device.stream_buffer);
 		glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, (GLintptr)staged, (GLintptr)offset,
 			(GLsizeiptr)size);
@@ -3769,6 +3878,19 @@ static unsigned long stream_upload(const void *data, unsigned long size)
 #endif
 	device.stream_offset += size;
 	return offset;
+}
+
+/* room for a draw's count indices, made before its streams are set: on the
+Switch a full index buffer moves the ring on, which fences the vertices
+the draw would read were they already in it */
+static void index_reserve(unsigned long count)
+{
+#ifdef HALO_SWITCH
+	if (device.index_offset + ((count * sizeof(WORD) + 15) & ~15UL) > INDEX_BUFFER_SIZE)
+		buffer_ring_advance();
+#else
+	(void)count;
+#endif
 }
 
 static unsigned long index_upload(const void *data, unsigned long size)
@@ -4056,6 +4178,8 @@ void WINAPI D3DDevice_DrawVertices(D3DPRIMITIVETYPE primitive_type, UINT start_v
 	if (!vertex_count || !prepare_draw(FALSE))
 		return;
 	trace_draw("draw", primitive_type, vertex_count, NULL);
+	if (primitive_type == D3DPT_QUADLIST)
+		index_reserve(vertex_count / 4 * 6);
 	setup_streams(start_vertex, vertex_count);
 	if (primitive_type == D3DPT_QUADLIST)
 		quad_list_draw(vertex_count, 0);
@@ -4082,6 +4206,8 @@ void WINAPI D3DDevice_DrawIndexedVertices(D3DPRIMITIVETYPE primitive_type, UINT 
 		mirror_range((unsigned long)index_data, vertex_count * sizeof(WORD), &index_buffer, &index_offset, &generation);
 	index_extent(index_data, vertex_count, generation, mirrored, &minimum, &maximum);
 	trace_draw("indexed", primitive_type, vertex_count, NULL);
+	if (!mirrored)
+		index_reserve(primitive_type == D3DPT_QUADLIST ? vertex_count / 4 * 6 : vertex_count);
 	/* (the streams from the base vertex on: index i is vertex base + i) */
 	setup_streams(device.base_vertex_index + minimum, maximum - minimum + 1);
 	if (mirrored)
@@ -4159,6 +4285,8 @@ void WINAPI D3DDevice_End(void)
 	if (!count || !prepare_draw(TRUE))
 		return;
 	trace_draw("immediate", type, count, device.immediate_vertices);
+	if (type == D3DPT_QUADLIST)
+		index_reserve(count / 4 * 6);
 #ifdef HALO_SWITCH
 	/* (the vertices at a whole vertex's place in the buffer: the attributes
 	point at its start, as for the draws before, which the GL state cache
