@@ -526,19 +526,41 @@ void xgpu_gl_state_invalidate(void)
 	memset(&gl_state, 0xff, sizeof(gl_state));
 }
 
-/* what D3DDevice_Clear changes (the masks and the scissor), unknown again;
-the other ports forget all the state, which the Switch's CPU feels */
-static void clear_state_invalidate(void)
+/* the parts of the state that GL work outside the state_* functions
+changed (a clear, a blit, a texture's upload), unknown again; the other
+ports forget all of it, which the Switch's CPU would feel each frame */
+enum
+{
+	_gl_state_framebuffer = 1,
+	/* the write masks and the scissor */
+	_gl_state_masks = 2,
+	_gl_state_textures = 4
+};
+
+static void gl_state_forget(unsigned int parts)
 {
 #ifdef HALO_SWITCH
-	gl_state.color_mask = 0xff;
-	gl_state.depth_mask = 0xff;
-	gl_state.stencil_write_mask = 0xffffffffu;
-	gl_state.scissor_test = 0xff;
-	memset(gl_state.scissor, 0xff, sizeof(gl_state.scissor));
+	if (parts & _gl_state_framebuffer)
+		gl_state.framebuffer = 0xffffffffu;
+	if (parts & _gl_state_masks)
+	{
+		gl_state.color_mask = 0xff;
+		gl_state.depth_mask = 0xff;
+		gl_state.stencil_write_mask = 0xffffffffu;
+		gl_state.scissor_test = 0xff;
+		memset(gl_state.scissor, 0xff, sizeof(gl_state.scissor));
+	}
+	if (parts & _gl_state_textures)
+		memset(gl_state.textures, 0xff, sizeof(gl_state.textures));
 #else
+	(void)parts;
 	xgpu_gl_state_invalidate();
 #endif
+}
+
+void xgpu_gl_state_forget_textures(void)
+{
+	gl_state_forget(_gl_state_textures);
 }
 
 static void state_enable(unsigned char *shadow, GLenum capability, BOOL enabled)
@@ -2733,7 +2755,7 @@ static void copy_level_by_blit(GLuint source, GLuint destination, GLint level, G
 	glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	/* the blit bypasses the cached state, so the next draw must re-apply it */
-	xgpu_gl_state_invalidate();
+	gl_state_forget(_gl_state_framebuffer | _gl_state_masks);
 }
 #endif
 
@@ -2800,7 +2822,7 @@ static GLuint mip_composite_get(const struct xgpu_texture_description *descripti
 		glGenerateMipmap(GL_TEXTURE_2D);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
 	}
-	xgpu_gl_state_invalidate();
+	gl_state_forget(_gl_state_textures);
 	return composite->texture;
 }
 
@@ -4263,7 +4285,7 @@ void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags,
 			target_pixel((float)(device.viewport.Y + device.viewport.Height), 1) - y0);
 		glClear(mask);
 		glDisable(GL_SCISSOR_TEST);
-		clear_state_invalidate();
+		gl_state_forget(_gl_state_masks);
 		return;
 	}
 	glEnable(GL_SCISSOR_TEST);
@@ -4286,7 +4308,7 @@ void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags,
 		glClear(mask);
 	}
 	glDisable(GL_SCISSOR_TEST);
-	clear_state_invalidate();
+	gl_state_forget(_gl_state_masks);
 }
 
 /* ---------- presentation */
@@ -4384,7 +4406,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		glBlitFramebuffer(0, 0, (GLint)back_buffer->target.gl_width, (GLint)back_buffer->target.gl_height,
 			x, y + height, x + width, y, GL_COLOR_BUFFER_BIT, GL_LINEAR);
 		platform_video_swap();
-		xgpu_gl_state_invalidate();
+		gl_state_forget(_gl_state_framebuffer | _gl_state_masks);
 		xgpu_texture_cache_begin_frame();
 #ifdef HALO_SWITCH
 		async_shaders_frame();

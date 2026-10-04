@@ -591,7 +591,7 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 #endif
 	converted = description->compressed && !decode_compressed ? NULL : malloc(largest * sizeof(unsigned long));
 	glBindTexture(target, texture);
-	xgpu_gl_state_invalidate();
+	xgpu_gl_state_forget_textures();
 #ifdef HALO_GUEST
 	/* converted texels are BGRA in memory (32-bit ARGB words); ES takes
 	RGBA */
@@ -880,7 +880,7 @@ void xgpu_texture_cache_begin_frame(void)
 			{
 				*link = entry->next;
 				glDeleteTextures(1, &entry->texture);
-				xgpu_gl_state_invalidate();
+				xgpu_gl_state_forget_textures();
 				texture_drop_serial++;
 				free(entry);
 			}

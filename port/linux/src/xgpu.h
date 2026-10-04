@@ -42,10 +42,12 @@ void host_gl_wait_frame(unsigned int slot);
 /* ---------- GL state
 
 The device caches the GL state it sets for draws (d3d8_gl.c); code that
-changes GL state behind it (binding a texture to upload it, deleting one)
-must call this afterwards. */
+changes GL state behind it must call one of these afterwards: the second
+when it changed only texture bindings (binding a texture to upload it,
+deleting one). */
 
 void xgpu_gl_state_invalidate(void);
+void xgpu_gl_state_forget_textures(void);
 
 /* ---------- generated source text */
 
