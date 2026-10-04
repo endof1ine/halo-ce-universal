@@ -313,6 +313,10 @@ vertices. */
 #define INDEX_BUFFER_SIZE (8 * 1024 * 1024)
 #endif
 #define VISIBILITY_TEST_SLOTS 4096
+/* frames of copied visibility counters (GLES), and the frame fences they
+take after the stream ring's (host_gl_fence_frame has 8) */
+#define VISIBILITY_STAGING_FRAMES 3
+#define VISIBILITY_FENCE_SLOT 4
 #ifdef HALO_GUEST
 #define VISIBILITY_QUERY GL_ANY_SAMPLES_PASSED
 #define VISIBILITY_ALL_SAMPLES 1000000
@@ -384,6 +388,15 @@ struct gl_device
 	unsigned long counter_next;
 	unsigned long counter_active;
 	unsigned long counter_of_slot[VISIBILITY_TEST_SLOTS];
+	/* the counters copied at the end of each frame, which a result is read
+	from two frames later, when the GPU is long done with them: reading the
+	counters themselves waits for every draw queued (visibility_stage_frame) */
+	GLuint visibility_staging[VISIBILITY_STAGING_FRAMES];
+	unsigned short staged_counter[VISIBILITY_STAGING_FRAMES][VISIBILITY_TEST_SLOTS];
+	unsigned long visibility_frame;
+	unsigned long visibility_read_frame;
+	UINT visibility_latest[VISIBILITY_TEST_SLOTS];
+	BOOL query_ended_this_frame[VISIBILITY_TEST_SLOTS];
 #else
 	/* each test's latest result, which the GPU writes (as a query buffer)
 	when the test's draws are done: the game waits for results at the start
@@ -1016,6 +1029,14 @@ static void gl_initialize(void)
 		glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, device.visibility_counters);
 		glBufferData(GL_ATOMIC_COUNTER_BUFFER, VISIBILITY_TEST_SLOTS * sizeof(GLuint), NULL, GL_DYNAMIC_DRAW);
 		glBindBuffer(GL_ATOMIC_COUNTER_BUFFER, 0);
+		glGenBuffers(VISIBILITY_STAGING_FRAMES, device.visibility_staging);
+		for (index = 0; index < VISIBILITY_STAGING_FRAMES; index++)
+		{
+			glBindBuffer(GL_COPY_WRITE_BUFFER, device.visibility_staging[index]);
+			glBufferData(GL_COPY_WRITE_BUFFER, VISIBILITY_TEST_SLOTS * sizeof(GLuint), NULL, GL_STREAM_READ);
+		}
+		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+		memset(device.staged_counter, 0xff, sizeof(device.staged_counter));
 	}
 #endif
 	for (index = 0; index < XGPU_VERTEX_ATTRIBUTE_COUNT; index++)
@@ -1401,6 +1422,33 @@ void WINAPI D3DDevice_InsertCallback(D3DCALLBACKTYPE type, D3DCALLBACK callback,
 
 /* ---------- visibility (occlusion) tests */
 
+#ifdef HALO_GUEST
+/* at the end of a frame: its counters into the next staging buffer, by the
+GPU after the frame's draws, and which counter each test ended in */
+static void visibility_stage_frame(void)
+{
+	unsigned long frame = device.visibility_frame % VISIBILITY_STAGING_FRAMES;
+	unsigned long index;
+
+	/* (the copy of three frames ago, read by now) */
+	host_gl_wait_frame(VISIBILITY_FENCE_SLOT + (unsigned int)frame);
+	glBindBuffer(GL_COPY_READ_BUFFER, device.visibility_counters);
+	glBindBuffer(GL_COPY_WRITE_BUFFER, device.visibility_staging[frame]);
+	glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, 0, 0, VISIBILITY_TEST_SLOTS * sizeof(GLuint));
+	glBindBuffer(GL_COPY_READ_BUFFER, 0);
+	glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+	host_gl_fence_frame(VISIBILITY_FENCE_SLOT + (unsigned int)frame);
+	for (index = 0; index < VISIBILITY_TEST_SLOTS; index++)
+	{
+		device.staged_counter[frame][index] = device.query_ended_this_frame[index] ?
+			(unsigned short)device.counter_of_slot[index] : 0xffff;
+		device.query_ended_this_frame[index] = FALSE;
+	}
+	device.visibility_frame++;
+}
+
+#endif
+
 void WINAPI D3DDevice_BeginVisibilityTest(void)
 {
 	if (!device.gl_ready || device.visibility_test_active)
@@ -1439,6 +1487,9 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	{
 		device.counter_of_slot[index] = device.counter_active;
 		device.query_pending[index] = TRUE;
+		device.query_ended_this_frame[index] = TRUE;
+		/* (a count of the scaled target's pixels: visibility_unscaled) */
+		device.query_area[index] = target_scale[0] * target_scale[1];
 		return S_OK;
 	}
 #endif
@@ -1465,7 +1516,6 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	return S_OK;
 }
 
-#ifndef HALO_GUEST
 /* a count of pixels in the game's pixels */
 static GLuint visibility_unscaled(GLuint samples, DWORD index)
 {
@@ -1474,7 +1524,6 @@ static GLuint visibility_unscaled(GLuint samples, DWORD index)
 	return area > 1.0f ? (GLuint)(samples / area + 0.5f) : samples;
 }
 
-#endif
 HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULONGLONG *time_stamp)
 {
 	GLuint available = 0, samples = 0;
@@ -1493,11 +1542,28 @@ HRESULT WINAPI D3DDevice_GetVisibilityTestResult(DWORD index, UINT *result, ULON
 #ifdef HALO_GUEST
 	if (xgpu_capabilities.atomic_counters)
 	{
-		/* reading the buffer waits for the draws that counted */
-		samples = host_gl_read_buffer_word(device.visibility_counters,
-			(unsigned int)(device.counter_of_slot[index] * sizeof(GLuint)));
+		/* the test's count of two frames ago (or its latest before): the
+		lens flares it serves are a frame or two late, and nothing waits */
+		if (device.visibility_frame >= 2)
+		{
+			unsigned long frame = (device.visibility_frame - 2) % VISIBILITY_STAGING_FRAMES;
+			unsigned short counter = device.staged_counter[frame][index];
+
+			if (device.visibility_read_frame != device.visibility_frame)
+			{
+				/* (long passed: this only deletes the fence) */
+				host_gl_wait_frame(VISIBILITY_FENCE_SLOT + (unsigned int)frame);
+				device.visibility_read_frame = device.visibility_frame;
+			}
+			if (counter != 0xffff)
+			{
+				device.visibility_latest[index] = visibility_unscaled(host_gl_read_buffer_word(
+					device.visibility_staging[frame], (unsigned int)(counter * sizeof(GLuint))), index);
+				device.staged_counter[frame][index] = 0xffff;
+			}
+		}
 		if (result)
-			*result = samples;
+			*result = device.visibility_latest[index];
 		return S_OK;
 	}
 #endif
@@ -3926,6 +3992,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		xgpu_gl_state_invalidate();
 		xgpu_texture_cache_begin_frame();
 #ifdef HALO_GUEST
+		if (xgpu_capabilities.atomic_counters)
+			visibility_stage_frame();
 		host_gl_fence_frame((unsigned int)device.buffer_ring);
 		device.buffer_ring = (device.buffer_ring + 1) % STREAM_BUFFER_RING;
 		host_gl_wait_frame((unsigned int)device.buffer_ring);
