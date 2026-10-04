@@ -367,6 +367,7 @@ class Art:
                 continue
             if png in port_settings.BLANK_FRAMES:
                 if not (MENUS / port_settings.BLANK_PICTURE).is_file():
+                    (MENUS / port_settings.BLANK_PICTURE).parent.mkdir(parents=True, exist_ok=True)
                     Image.new("RGBA", (width, height)).save(MENUS / port_settings.BLANK_PICTURE, optimize=True)
                 if port_settings.BLANK_PICTURE not in self.pngs:
                     self.pngs.append(port_settings.BLANK_PICTURE)

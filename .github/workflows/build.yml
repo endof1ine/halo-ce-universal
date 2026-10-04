@@ -89,7 +89,9 @@ jobs:
     # devkitPro's image has devkitA64, libnx and switch-mesa for the host;
     # apt.llvm.org's clang 22 compiles the guest image (as in the build
     # container, port/switch/docker/Dockerfile): the profiles in pgo/ need it.
-    runs-on: ubuntu-24.04
+    # On ARM: the guest links compiler-rt's AArch64 builtins, which only the
+    # arm64 package of libclang-rt has.
+    runs-on: ubuntu-24.04-arm
     container: devkitpro/devkita64:latest
     timeout-minutes: 40
     steps:
@@ -104,6 +106,8 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends clang-22 lld-22 llvm-22 libclang-rt-22-dev
           echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
+          # (devkitA64's compilers, for FFmpeg's build, as the container's)
+          echo "$DEVKITPRO/devkitA64/bin" >> "$GITHUB_PATH"
 
       - uses: actions/checkout@v4
 
@@ -293,11 +297,11 @@ jobs:
           retention-days: 3
 
   release:
-    # The six builds as a release, tagged build-<run number> and marked latest
+    # The eight builds as a release, tagged build-<run number> and marked latest
     # (every file keeps its name from release to release, for the README's
     # latest/download links); then all but the newest five build-* releases
     # go, tags and all. Only for main, and only when every platform built.
-    needs: [linux, android, windows]
+    needs: [linux, switch, android, windows]
     if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -351,7 +355,7 @@ jobs:
     # without it): green when every platform built, red when one did not,
     # with each platform's result, this run's release (main only), and links
     # to the latest release's builds.
-    needs: [linux, android, windows, release]
+    needs: [linux, switch, android, windows, release]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -360,6 +364,7 @@ jobs:
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           LINUX: ${{ needs.linux.result }}
+          SWITCH: ${{ needs.switch.result }}
           ANDROID: ${{ needs.android.result }}
           WINDOWS: ${{ needs.windows.result }}
           RELEASE_TAG: ${{ needs.release.outputs.tag }}
@@ -384,13 +389,13 @@ jobs:
               *) echo "➖ Skipped" ;;
             esac
           }
-          if [ "$LINUX" = success ] && [ "$ANDROID" = success ] && [ "$WINDOWS" = success ]; then
+          if [ "$LINUX" = success ] && [ "$SWITCH" = success ] && [ "$ANDROID" = success ] && [ "$WINDOWS" = success ]; then
             title="Build succeeded"; color=5763719
           else
             title="Build failed"; color=15548997
           fi
           latest="$SERVER/$REPOSITORY/releases/latest"
-          downloads="[Linux]($latest/download/halo-linux-release.zip) · [Windows]($latest/download/halo-windows-release.zip) · [Android]($latest/download/halo-android-release.zip) ([all builds]($latest))"
+          downloads="[Linux]($latest/download/halo-linux-release.zip) · [Windows]($latest/download/halo-windows-release.zip) · [Android]($latest/download/halo-android-release.zip) · [Switch]($latest/download/halo-switch-release.zip) ([all builds]($latest))"
           if [ -n "$RELEASE_TAG" ]; then
             release="[$RELEASE_TAG]($SERVER/$REPOSITORY/releases/tag/$RELEASE_TAG)"
           else
@@ -401,7 +406,7 @@ jobs:
             --arg title "$title" --argjson color "$color" --arg url "$RUN_URL" \
             --arg description "[\`${SHA:0:7}\`]($COMMIT_URL) $subject — $ACTOR ($BRANCH)" \
             --arg release "$release" --arg downloads "$downloads" \
-            --arg linux "$(status "$LINUX")" --arg windows "$(status "$WINDOWS")" --arg android "$(status "$ANDROID")" \
+            --arg linux "$(status "$LINUX")" --arg windows "$(status "$WINDOWS")" --arg android "$(status "$ANDROID")" --arg switch "$(status "$SWITCH")" \
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{embeds: [{
               title: $title, url: $url, color: $color, description: $description, timestamp: $timestamp,
@@ -409,6 +414,7 @@ jobs:
                 {name: "Linux", value: $linux, inline: true},
                 {name: "Windows", value: $windows, inline: true},
                 {name: "Android", value: $android, inline: true},
+                {name: "Switch", value: $switch, inline: true},
                 {name: "Release", value: $release},
                 {name: "Latest release builds", value: $downloads}
               ]

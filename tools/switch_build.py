@@ -62,7 +62,7 @@ def fetch_third_party() -> Path:
 
 
 def switch_configure_inputs() -> List[Path]:
-    return [Path(__file__), *guest_configure_inputs(), PORT_DIR, *hud_configure_inputs()]
+    return [Path(__file__), *guest_configure_inputs(), PORT_DIR, PORT_DIR / "host", *hud_configure_inputs()]
 
 
 def generate_switch_build(n: Writer, sln: Any) -> None:
@@ -123,12 +123,7 @@ FFMPEG_DEFAULT = Path("/opt/halo-ffmpeg")
 TOML_DIR = Path("port/third_party/tomlc17")
 
 
-def _version() -> str:
-    try:
-        return subprocess.run(["git", "describe", "--tags", "--always", "--dirty"], capture_output=True, text=True,
-                              check=True).stdout.strip() or "0"
-    except (subprocess.CalledProcessError, OSError):
-        return "0"
+VERSION_COMMAND = "git describe --tags --always --dirty"
 
 
 def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path, release: bool, ffmpeg: Path) -> None:
@@ -202,12 +197,16 @@ def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path, 
 
     # the program: the host, its metadata and icon, the guest in its RomFS
     n.build(outputs=romfs / "halo_guest.elf", rule="switch_copy", inputs=image)
+    # (the version when it is built, again at each commit or checkout)
     n.rule(
         name="switch_nacp",
-        command=f"{tools}/nacptool --create \"Halo: Combat Evolved\" \"halo-ce-universal\" \"{_version()}\" $out",
+        command=f"{tools}/nacptool --create \"Halo: Combat Evolved\" \"halo-ce-universal\" "
+                f"\"$$({VERSION_COMMAND} 2>/dev/null || echo 0)\" $out",
         description="SWITCH NACP $out",
     )
-    n.build(outputs=nacp, rule="switch_nacp", implicit=[Path("tools/switch_build.py")])
+    head_log = Path(".git/logs/HEAD")
+    n.build(outputs=nacp, rule="switch_nacp",
+            implicit=[Path("tools/switch_build.py"), *([head_log] if head_log.is_file() else [])])
     n.rule(
         name="switch_icon",
         command="convert $in -resize 256x256 -background black -flatten -quality 90 $out",
