@@ -137,5 +137,7 @@ void host_audio_pause(int paused);
 void host_sdl_queue_gamepad_added(uint32_t id);
 /* relative mouse motion: the platform layer's mouse look (gyro aiming) */
 void host_sdl_queue_mouse_motion(float x, float y);
+/* the keyboard for internet play's invite links (hold - and X) */
+void host_sdl_invite_keyboard(void);
 
 #endif

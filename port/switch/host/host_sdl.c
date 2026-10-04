@@ -35,6 +35,8 @@ surface is made again when the console is docked or taken out) */
 #define EVENT_QUEUE_SIZE 64
 
 static char last_error[256];
+/* internet play's invite links (the clipboard, below) */
+static char clipboard[1024];
 static uint64_t start_tick;
 
 static void set_error(const char *text)
@@ -459,8 +461,6 @@ int32_t host_sdl_scancode_from_name(const char *name)
 
 /* ---------- the clipboard (internet play's invite links): the program's own */
 
-static char clipboard[1024];
-
 int host_sdl_set_clipboard_text(const char *text)
 {
 	snprintf(clipboard, sizeof(clipboard), "%s", text ? text : "");
@@ -474,6 +474,34 @@ void host_sdl_get_clipboard_text(char *buffer, uint32_t size)
 }
 
 /* ---------- notices for the player: logged */
+
+/* the system's keyboard with the clipboard's text: the invite link of a game
+the console hosts, to read out, or another's to join. A different link goes
+to the clipboard, and the game, told it came to the front, joins it
+(network.join_from_clipboard, sdl_platform.c) */
+void host_sdl_invite_keyboard(void)
+{
+	SwkbdConfig keyboard;
+	char text[sizeof(clipboard)] = "";
+	Result result;
+
+	if (R_FAILED(swkbdCreate(&keyboard, 0)))
+		return;
+	swkbdConfigMakePresetDefault(&keyboard);
+	swkbdConfigSetHeaderText(&keyboard, clipboard[0] ? "Your game's invite link, or another to join" :
+		"An invite link to join");
+	swkbdConfigSetGuideText(&keyboard, "halo://join/...");
+	swkbdConfigSetInitialText(&keyboard, clipboard);
+	swkbdConfigSetOkButtonText(&keyboard, "Join");
+	swkbdConfigSetStringLenMax(&keyboard, sizeof(clipboard) - 1);
+	result = swkbdShow(&keyboard, text, sizeof(text));
+	swkbdClose(&keyboard);
+	if (R_FAILED(result) || !text[0] || !strcmp(text, clipboard))
+		return;
+	snprintf(clipboard, sizeof(clipboard), "%s", text);
+	host_logf(HOST_LOG_INFO, "invite link entered");
+	queue_simple(SDL_EVENT_WINDOW_FOCUS_GAINED);
+}
 
 int host_sdl_show_toast(const char *message, int duration, int gravity, int x, int y)
 {

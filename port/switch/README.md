@@ -86,6 +86,13 @@ The buttons go by their labels, as the game's prompts show them:
 The first controller (or the attached Joy-Con) is player 1. The other
 controllers are players 2 to 4 (split screen).
 
+On player 1's controller, hold these buttons together for one second:
+
+| Buttons | Function |
+| --- | --- |
+| + and − | The controller setup of the system: choose the controllers of players 2 to 4. Each player needs two sticks: a pair of Joy-Con or a Pro Controller. |
+| − and X | The keyboard of the system for internet play. When the Switch hosts a game, it shows the invite link of the game. To join a game, enter its invite link. |
+
 ## Settings
 
 The settings are in `/switch/halo/config.toml`. At the first start, the game
@@ -96,7 +103,8 @@ only for the Switch:
 
 | Setting | Function |
 | --- | --- |
-| `display.render_scale` | The screen's pixels for each of the 480 lines of the game. `1` (the default) is the Xbox's. `1.5` is the 720 lines of the Switch's screen: sharper, and more work for the GPU. |
+| `display.render_scale` | The screen's pixels for each of the 480 lines of the game, in handheld mode. `1` (the default) is the Xbox's. `1.5` is the 720 lines of the Switch's screen: sharper, and more work for the GPU. |
+| `display.render_scale_docked` | The same, when the Switch is docked. The game then shows 1080 lines. `1.5` (the default) draws 720 lines, `2.25` all 1080. |
 | `display.async_shaders` | `true` (the default): other cores compile the shaders. An effect that appears for the first time is a frame or two late. `false`: the game stops while each shader compiles. |
 | `input.button_positions` | `true`: A, B, X and Y go by their positions, as on an Xbox controller (the bottom button jumps). |
 | `input.gyro_aim` | `true`: turn player 1's controller to aim. The right stick also aims. |

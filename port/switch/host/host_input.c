@@ -15,6 +15,11 @@ are the triggers at full travel.
 Rumble: the Xbox's low-frequency (heavy) motor plays in HD rumble's low
 band and its high-frequency one in the high band.
 
+Held for a second on player 1's controller: + and - open the system's
+controller setup (players 2 to 4 each with a pair of Joy-Con or a Pro
+Controller: the game needs two sticks, so not one Joy-Con each); - and X
+the keyboard for an internet game's invite link (host_sdl.c).
+
 Gyro aiming (input.gyro_aim = true in config.toml; off unless set): player
 1's controller turned turns the view as much (input.gyro_sensitivity, 1 by
 default; input.gyro_invert_x and _y), through the platform layer's mouse
@@ -89,6 +94,73 @@ struct rumble
 };
 
 static struct rumble rumbles[PLAYERS];
+
+/* the buttons held together for a second that open a system screen */
+#define GESTURE_NANOSECONDS 1000000000ull
+
+enum
+{
+	_gesture_none,
+	_gesture_controllers,
+	_gesture_invite,
+};
+
+static struct
+{
+	int held;
+	uint64_t since;
+	int fired;
+} gesture;
+
+static u64 gesture_buttons(int held)
+{
+	return held == _gesture_controllers ? HidNpadButton_Plus | HidNpadButton_Minus :
+		held == _gesture_invite ? HidNpadButton_Minus | HidNpadButton_X : 0;
+}
+
+/* the system's controller setup: who plays as which player */
+static void controller_setup(void)
+{
+	HidLaControllerSupportArg arg;
+	HidLaControllerSupportResultInfo result;
+
+	hidLaCreateControllerSupportArg(&arg);
+	arg.hdr.player_count_min = 1;
+	arg.hdr.player_count_max = PLAYERS;
+	arg.hdr.enable_permit_joy_dual = 1;
+	host_input_stop_rumble();
+	if (R_SUCCEEDED(hidLaShowControllerSupport(&result, &arg)))
+		host_logf(HOST_LOG_INFO, "controller setup: %d players", (int)result.player_count);
+}
+
+/* the buttons player 1 holds together, and after a second the screen they
+open (once until they are let go). On the game's thread, between frames:
+the system's screens stop it while they are up */
+static void gesture_update(void)
+{
+	u64 buttons = pad_connected[0] ? padGetButtons(&pads[0]) : 0;
+	int held = _gesture_none;
+	uint64_t now = armTicksToNs(armGetSystemTick());
+
+	if ((buttons & (HidNpadButton_Plus | HidNpadButton_Minus)) == (HidNpadButton_Plus | HidNpadButton_Minus))
+		held = _gesture_controllers;
+	else if ((buttons & (HidNpadButton_Minus | HidNpadButton_X)) == (HidNpadButton_Minus | HidNpadButton_X))
+		held = _gesture_invite;
+	if (held != gesture.held)
+	{
+		gesture.held = held;
+		gesture.since = now;
+		gesture.fired = 0;
+		return;
+	}
+	if (!held || gesture.fired || now - gesture.since < GESTURE_NANOSECONDS)
+		return;
+	gesture.fired = 1;
+	if (held == _gesture_controllers)
+		controller_setup();
+	else
+		host_sdl_invite_keyboard();
+}
 
 void host_input_initialize(void)
 {
@@ -211,6 +283,7 @@ void host_input_update(void)
 	}
 	gyro_update();
 	mutexUnlock(&input_lock);
+	gesture_update();
 }
 
 static PadState *pad_of(uint32_t gamepad)
@@ -271,6 +344,9 @@ int host_sdl_gamepad_button(uint32_t gamepad, int button)
 	case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: mask = HidNpadButton_Right; break;
 	default: return 0;
 	}
+	/* (the buttons of a screen being opened are not the game's) */
+	if (gamepad == 1 && gesture.held)
+		held &= ~gesture_buttons(gesture.held);
 	return (held & mask) != 0;
 }
 
