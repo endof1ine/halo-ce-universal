@@ -66,8 +66,13 @@ versions operate.
 | Movies | `/switch/halo/bink` |
 | Settings | `/switch/halo/config.toml` |
 | Saved games (`z:\` and `u:\`) | `/switch/halo/save` |
+| Internet play's servers (written at each start) | `/switch/halo/brokers.txt` |
 | Log of the game | `/switch/halo/debug.txt` |
 | Log of the Switch program | `/switch/halo/host.log` |
+
+A checkpoint from a build before network co-op does not resume: co-op
+made the game's state larger (`port/linux/include/halo_port_capacity.h`).
+Start the level again; its checkpoints then resume.
 
 ## Controls
 
@@ -113,8 +118,8 @@ it sets the keyboard's keys.
 | Menu | Switch settings |
 | --- | --- |
 | Video Setup | Handheld Resolution, Docked Resolution, Dynamic Resolution, Movies, 30 FPS Lock |
-| Gamepads | Face Buttons |
-| Gyro Setup (Mouse Setup on a computer) | Gyro Aiming, Gyro Sensitivity, Invert Horizontal, Invert Vertical, Gyro Aim Assist |
+| Gamepads | Face Buttons, Vibration Strength |
+| Aim Setup (Mouse Setup on a computer) | Gyro Aiming, Gyro Sensitivity, Invert Horizontal, Invert Vertical, Gyro Aim Assist, Stick Deadzone, Look Response |
 
 The menus write the settings to `/switch/halo/config.toml`. At the first
 start, the game writes the file with the default values. The settings are
@@ -134,6 +139,9 @@ only for the Switch:
 | `input.gyro_sensitivity` | How far the view turns when you turn the controller. `1`: the same angle. |
 | `input.gyro_invert_x`, `input.gyro_invert_y` | Turn the view in the other direction. |
 | `input.gyro_aim_assist` | `true` (the default): the aim assist of the controller operates while you aim with the gyro. |
+| `input.stick_deadzone` | How far a stick moves before it counts, as a part of its travel. `0` (the default): none. `0.1` ignores the first tenth, for a worn stick that drifts. |
+| `input.look_response` | The right stick's response curve: its push raised to this power. `1` (the default): as it is. Above 1 turns slower near the centre, for fine aiming; below 1, quicker. |
+| `input.vibration_strength` | How strongly the controllers rumble. `1` (the default): as it is. `0.5` half, `2` twice. |
 
 These settings are not in the file. Add them to find problems:
 
