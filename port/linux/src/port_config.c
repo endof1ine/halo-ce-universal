@@ -187,6 +187,14 @@ static const struct config_setting config_settings[] =
 		_platform_switch,
 		"Magnetism while aiming with the gyro, as with the stick: the view slowed\n"
 		"and dragged along by a target." },
+	{ "input.stick_deadzone", _config_real, "0.0", "HALO_STICK_DEADZONE", _environment_value, _platform_switch,
+		"How far a stick moves before it counts, of its travel: 0.1 ignores the\n"
+		"first tenth (a worn stick that drifts)." },
+	{ "input.look_response", _config_real, "1.0", "HALO_LOOK_RESPONSE", _environment_value, _platform_switch,
+		"The right stick's response curve: its push raised to this power. 1 as\n"
+		"it is; above 1 slower near the centre, for fine aiming; below, quicker." },
+	{ "input.vibration_strength", _config_real, "1.0", "HALO_VIBRATION_STRENGTH", _environment_value,
+		_platform_switch, "How strongly the controller rumbles: 1 as it is, 0.5 half, 2 twice." },
 
 	/* the keyboard and mouse's own controls (port/linux/src/xinput_sdl.c) */
 	{ "controls.move_forward", _config_string, "\"W\"", "HALO_KEY_MOVE_FORWARD", _environment_value, _platform_all,
@@ -264,7 +272,7 @@ static const struct config_setting config_settings[] =
 		"link (or copying one before switching to the game) joins. Only people\n"
 		"with the invite can join. Off keeps system link to the local network." },
 	{ "network.join_from_clipboard", _config_boolean, "true", "HALO_NET_JOIN_FROM_CLIPBOARD", _environment_value,
-		_platform_all,
+		_platform_desktop | _platform_android,
 		"Join the game of an invite link found on the clipboard when the game\n"
 		"comes to the front." },
 	{ "network.tunnel_port", _config_integer, "0", "HALO_NET_TUNNEL_PORT", _environment_value, _platform_all,
@@ -298,7 +306,8 @@ static const struct config_setting config_settings[] =
 		"The Discord application internet play invites go through while the\n"
 		"Discord desktop client runs; empty for none." },
 
-	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
+	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value,
+		_platform_desktop | _platform_android,
 		"Look for a new version when the game starts, and offer to update to it;\n"
 		"false never looks (the game's \"Do not ask again\" writes false here)." },
 
@@ -876,8 +885,13 @@ static void config_load(void)
 		{
 			char *completed;
 
+			/* (another build's settings keep their defaults here: a Switch
+			never turns its invite joining off, for one) */
 			for (index = 0; index < NUMBER_OF_CONFIG_SETTINGS; index++)
-				config_set_from_file(&config_values[index], &config_settings[index], result.toptab);
+			{
+				if (config_settings[index].platforms & CONFIG_PLATFORM)
+					config_set_from_file(&config_values[index], &config_settings[index], result.toptab);
+			}
 			config_report_unknown_keys(result.toptab);
 			platform_log("settings: %s", path);
 			completed = config_add_missing(text, result.toptab);

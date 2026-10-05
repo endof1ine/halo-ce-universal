@@ -15,8 +15,9 @@ mouse's controls, by the functions the PC version names for it.
 A row can be for some platforms only (menu_files.c's platform attribute:
 "desktop", "android", "switch", or several between spaces); each platform's
 rows are laid out one after another, with no gaps for the others'. On the
-Switch, Mouse Setup is Gyro Setup (the gyro turns the view as a mouse does),
-and the profile menu has no Controls Setup (WIDGET_PATCHES).
+Switch, Mouse Setup is Aim Setup (the gyro turns the view as a mouse does;
+the sticks' deadzone and response are there too), and the profile menu has
+no Controls Setup (WIDGET_PATCHES).
 """
 
 from collections import defaultdict
@@ -32,8 +33,8 @@ NOT_SWITCH = "desktop android"
 
 # each screen: its folder below PE, its screen's widget (the name the profile
 # menu opens), its header (widget, bitmap), the Switch's own header if it has
-# one, the row spacing, and its rows: (label, setting, [(shown, value)], help,
-# platform: None for all)
+# one, the row spacing (spacing_<platform> for one's own), and its rows:
+# (label, setting, [(shown, value)], help, platform: None for all)
 SCREENS = {
     "video_settings": {
         "screen": "video_settings_screen",
@@ -79,7 +80,7 @@ SCREENS = {
     "mouse_settings": {
         "screen": "mouse_settings_screen",
         "header": ("header_profile_mouse_settings", f"{PE}/mouse_settings/header_profile_mouse_settings"),
-        "switch_header": ("header_gyro_settings", f"{PE}/mouse_settings/header_gyro_settings"),
+        "switch_header": ("header_aim_settings", f"{PE}/mouse_settings/header_aim_settings"),
         "spacing": 30,
         "rows": [
             ("HORIZONTAL SENSITIVITY:", "input.mouse_sensitivity", SENSITIVITIES,
@@ -101,6 +102,12 @@ SCREENS = {
              "Tilting the controller up looks down.", "switch"),
             ("GYRO AIM ASSIST:", "input.gyro_aim_assist", ON_OFF,
              "Slow and drag the view along with a target while\naiming with the gyro, as with the stick.", "switch"),
+            ("STICK DEADZONE:", "input.stick_deadzone",
+             [("NONE", "0"), ("SMALL", "0.05"), ("MEDIUM", "0.1"), ("LARGE", "0.15")],
+             "How far a stick moves before it counts: more\nstops a worn stick drifting.", "switch"),
+            ("LOOK RESPONSE:", "input.look_response",
+             [("QUICK", "0.8"), ("STANDARD", "1"), ("SMOOTH", "1.5"), ("PRECISE", "2")],
+             "How the right stick's push turns the view: smooth\nand precise turn slower until pushed far.", "switch"),
         ],
     },
     "audio_settings": {
@@ -126,9 +133,9 @@ SCREENS = {
             ("UPNP PORT FORWARDING:", "network.allow_upnp", ON_OFF,
              "Let internet play ask the router to forward its\nport, for networks that stop connections.", None),
             ("JOIN FROM CLIPBOARD:", "network.join_from_clipboard", ON_OFF,
-             "Join the game of an invite link copied before\nswitching to the game.", None),
+             "Join the game of an invite link copied before\nswitching to the game.", NOT_SWITCH),
             ("CHECK FOR UPDATES:", "update.auto", ON_OFF,
-             "Look for a new version when the game starts.", None),
+             "Look for a new version when the game starts.", NOT_SWITCH),
             ("PLAYER NAMES:", "display.player_names",
              [("ALL", "all"), ("ALLIES", "allies"), ("ENEMIES", "enemies"), ("NONE", "none")],
              "In multiplayer, whose names are drawn above their\nheads.", None),
@@ -145,6 +152,8 @@ SCREENS = {
         "screen": "gamepad_setup_screen",
         "header": ("header_profile_controller_setting", f"{PE}/controller_edit/header_profile_controller_setting"),
         "spacing": 30,
+        # (ten rows on the Switch: closer, as the video screen's)
+        "spacing_switch": 26,
         "rows": [
             ("LOOK SENSITIVITY:", "profile.look_sensitivity", [(str(step), str(step)) for step in range(1, 11)],
              "How fast the right stick turns the view.", None),
@@ -163,6 +172,9 @@ SCREENS = {
             ("FACE BUTTONS:", "input.button_positions", [("BY LABEL", "false"), ("BY POSITION", "true")],
              "By label, A jumps; by position, the bottom button\njumps, as on an Xbox controller.", "switch"),
             ("VIBRATION:", "profile.vibration", ON_OFF, "Rumble the controller.", None),
+            ("VIBRATION STRENGTH:", "input.vibration_strength",
+             [("LOW", "0.5"), ("MEDIUM", "1"), ("HIGH", "1.5"), ("MAXIMUM", "2")],
+             "How strongly the controller rumbles.", "switch"),
             ("IN-GAME HELP:", "profile.ingame_help", ON_OFF, "Show the game's hints about its controls.", None),
         ],
     },
@@ -189,10 +201,10 @@ STRING_OVERRIDES = {
 }
 
 # strings that differ by platform: a list's string (by its index, after
-# STRING_OVERRIDES) becomes one for each platform named (Mouse Setup is Gyro
+# STRING_OVERRIDES) becomes one for each platform named (Mouse Setup is Aim
 # Setup on the Switch, which has no window either)
 STRING_VARIANTS = {
-    f"{PE}/profile_edit_options": {3: [("MOUSE SETUP", NOT_SWITCH), ("GYRO SETUP", "switch")]},
+    f"{PE}/profile_edit_options": {3: [("MOUSE SETUP", NOT_SWITCH), ("AIM SETUP", "switch")]},
     f"{PE}/profile_edit_descriptions": {
         1: [("Choose the keys and mouse\\nbuttons for each action.\\n\\nProfile:", NOT_SWITCH)],
         3: [("Adjust the mouse's sensitivity\\nand aiming.\\n\\nProfile:", NOT_SWITCH),
@@ -300,11 +312,11 @@ def _screen(folder: str, spec: dict, rows: list, list_inputs: list, list_handler
     for row, platform in rows:
         places = defaultdict(list)
         for name in platform.split() if platform else PLATFORMS:
-            places[placed[name]].append(name)
+            places[73 + placed[name] * spec.get(f"spacing_{name}", spec["spacing"])].append(name)
             placed[name] += 1
-        for index, names in places.items():
+        for y, names in places.items():
             shown = None if len(names) == len(PLATFORMS) else " ".join(names)
-            children.append(f'<child{attributes([("widget", row), ("x", 54), ("y", 73 + index * spec["spacing"]), ("platform", shown)])}/>')
+            children.append(f'<child{attributes([("widget", row), ("x", 54), ("y", y), ("platform", shown)])}/>')
     children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", 414)])}/>')
     lines += _widget(f"{base}/options_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
@@ -595,7 +607,7 @@ TITLES = {
     f"{MT}/join_game/header_direct_link": "DIRECT LINK",
     f"{MT}/lobby/header_lobby": "GAME LOBBY",
     f"{MT}/coop/header_player_2": "PLAYER 2 PROFILE",
-    f"{PE}/mouse_settings/header_gyro_settings": "GYRO SETTINGS",
+    f"{PE}/mouse_settings/header_aim_settings": "AIM SETTINGS",
 }
 
 

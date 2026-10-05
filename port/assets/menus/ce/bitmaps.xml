@@ -321,8 +321,8 @@
 	<bitmap name="main_menu/multiplayer_type_select/lobby/header_lobby">
 		<frame png="ce/port/main_menu/multiplayer_type_select/lobby/header_lobby.png" width="512" height="64"/>
 	</bitmap>
-	<bitmap name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/header_gyro_settings">
-		<frame png="ce/port/main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/header_gyro_settings.png" width="512" height="64"/>
+	<bitmap name="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/header_aim_settings">
+		<frame png="ce/port/main_menu/settings_select/player_setup/player_profile_edit/mouse_settings/header_aim_settings.png" width="512" height="64"/>
 	</bitmap>
 	<bitmap name="pause/pausebox_left">
 		<frame png="ce/port/pause/pausebox_left__0.png" width="16" height="256"/>

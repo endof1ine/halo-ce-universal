@@ -50,6 +50,9 @@ full deflection */
 
 static PadState pads[PLAYERS];
 static int by_position;
+/* the settings menus' input.stick_deadzone, input.look_response (the right
+stick's curve) and input.vibration_strength */
+static float stick_deadzone, look_response = 1.0f, vibration_strength = 1.0f;
 
 /* gyro aiming: the radians of the platform layer's mouse look per unit of
 motion (xinput_sdl.c), and below what the controller is held still */
@@ -175,17 +178,31 @@ void host_input_settings_read(void)
 	int enabled = host_config_boolean("input.gyro_aim");
 	float sensitivity = (float)host_config_real("input.gyro_sensitivity", 1.0);
 	int invert_x = host_config_boolean("input.gyro_invert_x"), invert_y = host_config_boolean("input.gyro_invert_y");
+	float deadzone = (float)host_config_real("input.stick_deadzone", 0.0);
+	float response = (float)host_config_real("input.look_response", 1.0);
+	float strength = (float)host_config_real("input.vibration_strength", 1.0);
+	int player;
 
 	if (sensitivity <= 0.0f)
 		sensitivity = 1.0f;
+	deadzone = deadzone < 0.0f ? 0.0f : deadzone > 0.5f ? 0.5f : deadzone;
+	response = response < 0.25f ? 0.25f : response > 4.0f ? 4.0f : response;
+	strength = strength < 0.0f ? 0.0f : strength;
 	mutexLock(&input_lock);
 	by_position = positions;
+	stick_deadzone = deadzone;
+	look_response = response;
+	vibration_strength = strength;
+	/* (each controller's rumble sent again at its new strength) */
+	for (player = 0; player < PLAYERS; player++)
+		rumbles[player].low = rumbles[player].high = UINT32_MAX;
 	gyro.enabled = enabled;
 	gyro.sensitivity_x = invert_x ? -sensitivity : sensitivity;
 	gyro.sensitivity_y = invert_y ? -sensitivity : sensitivity;
 	mutexUnlock(&input_lock);
-	host_logf(HOST_LOG_INFO, "buttons by %s, gyro aiming %s (sensitivity %.2f)", positions ? "position" : "label",
-		enabled ? "on" : "off", sensitivity);
+	host_logf(HOST_LOG_INFO, "buttons by %s, gyro aiming %s (sensitivity %.2f), stick deadzone %.2f, look response "
+		"%.2f, vibration %.2f", positions ? "position" : "label", enabled ? "on" : "off", sensitivity, deadzone, response,
+		strength);
 }
 
 void host_input_initialize(void)
@@ -424,21 +441,27 @@ static int clamp_axis(int value)
 	return value < -32768 ? -32768 : value > 32767 ? 32767 : value;
 }
 
-/* a stick's position (SDL's y downwards), STICK_FULL of its travel (by its
-distance from the centre, so diagonals alike) being all of it */
+/* a stick's position (SDL's y downwards), STICK_FULL of its travel being all
+of it; then, by its distance from the centre (so diagonals alike), the
+deadzone taken off and the right stick's response curve applied */
 static void stick_position(PadState *pad, int stick, int *x, int *y)
 {
 	HidAnalogStickState position = padGetStickPos(pad, (unsigned int)stick);
-	float fx = (float)position.x / STICK_FULL, fy = (float)-position.y / STICK_FULL;
+	float fx = (float)position.x / (STICK_FULL * 32767.0f), fy = (float)-position.y / (STICK_FULL * 32767.0f);
 	float length = sqrtf(fx * fx + fy * fy);
 
-	if (length > 32767.0f)
+	if (length > 0.0f)
 	{
-		fx *= 32767.0f / length;
-		fy *= 32767.0f / length;
+		float scaled = length > 1.0f ? 1.0f : length;
+
+		scaled = scaled <= stick_deadzone ? 0.0f : (scaled - stick_deadzone) / (1.0f - stick_deadzone);
+		if (stick == 1 && look_response != 1.0f)
+			scaled = powf(scaled, look_response);
+		fx *= scaled / length;
+		fy *= scaled / length;
 	}
-	*x = clamp_axis((int)fx);
-	*y = clamp_axis((int)fy);
+	*x = clamp_axis((int)(fx * 32767.0f));
+	*y = clamp_axis((int)(fy * 32767.0f));
 }
 
 int host_sdl_gamepad_axis(uint32_t gamepad, int axis)
@@ -537,9 +560,11 @@ static void rumble_send(int player, uint32_t low, uint32_t high)
 		return;
 	for (index = 0; index < count; index++)
 	{
-		values[index].amp_low = RUMBLE_STRENGTH * (float)low / 65535.0f;
+		float strength = RUMBLE_STRENGTH * vibration_strength;
+
+		values[index].amp_low = fminf(strength * (float)low / 65535.0f, 1.0f);
 		values[index].freq_low = RUMBLE_LOW_HZ;
-		values[index].amp_high = RUMBLE_STRENGTH * (float)high / 65535.0f;
+		values[index].amp_high = fminf(strength * (float)high / 65535.0f, 1.0f);
 		values[index].freq_high = RUMBLE_HIGH_HZ;
 	}
 	if (R_SUCCEEDED(hidSendVibrationValues(rumble->handles, values, count)))

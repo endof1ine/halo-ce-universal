@@ -1335,7 +1335,7 @@
 		<string text="CONTROLS SETUP"/>
 		<string text="GAMEPADS"/>
 		<string text="MOUSE SETUP" platform="desktop android"/>
-		<string text="GYRO SETUP" platform="switch"/>
+		<string text="AIM SETUP" platform="switch"/>
 		<string text="AUDIO SETUP"/>
 		<string text="VIDEO SETUP"/>
 		<string text="CHANGE COLOR"/>
