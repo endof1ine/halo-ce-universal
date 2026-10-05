@@ -75,12 +75,6 @@ void host_logf(int priority, const char *format, ...)
 	log_line(priority, text);
 }
 
-/* the guest's log (Android priorities) */
-void host_log(int priority, const char *text)
-{
-	log_line(priority, text);
-}
-
 static void log_flush(void)
 {
 	mutexLock(&log_lock);
@@ -177,22 +171,27 @@ static void config_load(void)
 	config_loaded = 1;
 }
 
-int host_config_boolean_default(const char *key, int missing)
+/* a setting's value (a copy: a number or a boolean outlives the file's
+next reading); TOML_UNKNOWN when it is missing or the file did not parse */
+static toml_datum_t config_value(const char *key)
 {
 	toml_datum_t value;
-	int result = missing;
 
+	memset(&value, 0, sizeof(value));
 	mutexLock(&config_lock);
 	if (!config_loaded)
 		config_load();
 	if (config.ok)
-	{
 		value = toml_seek(config.toptab, key);
-		if (value.type == TOML_BOOLEAN)
-			result = value.u.boolean;
-	}
 	mutexUnlock(&config_lock);
-	return result;
+	return value;
+}
+
+int host_config_boolean_default(const char *key, int missing)
+{
+	toml_datum_t value = config_value(key);
+
+	return value.type == TOML_BOOLEAN ? value.u.boolean : missing;
 }
 
 /* the guest wrote a setting (port_config.c's config_write): the input's are
@@ -213,19 +212,13 @@ int host_config_boolean(const char *key)
 
 double host_config_real(const char *key, double missing)
 {
-	toml_result_t config = toml_parse_file_ex(HOST_DATA_ROOT "/config.toml");
-	toml_datum_t value;
-	double result = missing;
+	toml_datum_t value = config_value(key);
 
-	if (!config.ok)
-		return missing;
-	value = toml_seek(config.toptab, key);
 	if (value.type == TOML_FP64)
-		result = value.u.fp64;
-	else if (value.type == TOML_INT64)
-		result = (double)value.u.int64;
-	toml_free(config);
-	return result;
+		return value.u.fp64;
+	if (value.type == TOML_INT64)
+		return (double)value.u.int64;
+	return missing;
 }
 
 /* ---------- the CPU's clock */
@@ -238,11 +231,6 @@ void host_cpu_boost(int boost)
 }
 
 /* ---------- paths */
-
-void host_android_path(int which, char *buffer, uint32_t size)
-{
-	snprintf(buffer, size, "%s", which ? HOST_SAVE_ROOT : HOST_DATA_ROOT);
-}
 
 static int file_exists(const char *path)
 {
@@ -391,7 +379,6 @@ int main(int argc, char *argv[])
 	send_last_crash_report();
 	host_logf(HOST_LOG_INFO, "Halo for Switch starting");
 	host_syscall_initialize();
-	host_watch_start();
 
 	/* loading at the CPU's boosted clock (the GPU's lowered meanwhile) */
 	appletSetCpuBoostMode(ApmCpuBoostMode_FastLoad);

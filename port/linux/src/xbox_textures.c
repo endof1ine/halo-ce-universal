@@ -456,7 +456,10 @@ static void native_texel(unsigned char kind, const unsigned char *source, unsign
 		destination[1] = (unsigned char)(packed >> 8);
 		return;
 	}
-	memcpy(destination, source, bytes);
+	/* (1 or 2 bytes: native_format's) */
+	destination[0] = source[0];
+	if (bytes == 2)
+		destination[1] = source[1];
 }
 
 /* one level (or 3D slice set) of a texture in a native format, in rows */
@@ -698,11 +701,14 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 	unsigned long *converted;
 	unsigned long face, level, levels = description->levels;
 	BOOL stored = FALSE;
+	/* (texels uploaded in their own format, unconverted) */
+	BOOL kept = FALSE;
 #ifdef HALO_SWITCH
 	struct native_format native;
-	BOOL kept = !description->compressed && native_format(information.kind, &native);
-	unsigned char *native_texels = kept ? malloc(largest * native.bytes) : NULL;
+	unsigned char *native_texels;
 
+	kept = !description->compressed && native_format(information.kind, &native);
+	native_texels = kept ? malloc(largest * native.bytes) : NULL;
 	if (kept && !native_texels)
 		kept = FALSE;
 #endif
@@ -710,14 +716,8 @@ static void upload(GLuint texture, GLenum target, const struct xgpu_texture_desc
 #ifdef HALO_GUEST
 	decode_compressed = description->compressed && !xgpu_capabilities.s3tc;
 #endif
-	converted = description->compressed && !decode_compressed ? NULL : malloc(largest * sizeof(unsigned long));
-#ifdef HALO_SWITCH
-	if (kept)
-	{
-		free(converted);
-		converted = NULL;
-	}
-#endif
+	converted = (description->compressed && !decode_compressed) || kept ? NULL :
+		malloc(largest * sizeof(unsigned long));
 	glBindTexture(target, texture);
 	xgpu_gl_state_forget_textures();
 #ifdef HALO_GUEST

@@ -128,7 +128,7 @@ static void *watch_thread(void *unused)
 	for (;;)
 	{
 		uint32_t page;
-		uint32_t late = 0;
+		uint32_t late = 0, compared = 0;
 
 		svcSleepThread(PASS_NANOSECONDS);
 		mutexLock(&watch_lock);
@@ -139,6 +139,7 @@ static void *watch_thread(void *unused)
 				continue;
 			if ((int32_t)(pass - page_next_pass[page]) >= 0)
 			{
+				compared++;
 				if (page_check(page))
 					continue;
 				if (page_interval[page] < LONGEST_INTERVAL)
@@ -147,13 +148,15 @@ static void *watch_thread(void *unused)
 					page_flags[page] &= ~_page_hot;
 				page_next_pass[page] = pass + page_interval[page];
 			}
-			else if (verify && page_check(page))
+			else if (verify && (compared++, page_check(page)))
 			{
 				late++;
 			}
-			/* (let the guest's watch calls in now and then) */
-			if (!(page % 4096))
+			/* (let the guest's watch calls in every so many comparisons, not
+			after megabytes of them) */
+			if (compared >= 256)
 			{
+				compared = 0;
 				mutexUnlock(&watch_lock);
 				mutexLock(&watch_lock);
 			}
@@ -165,18 +168,13 @@ static void *watch_thread(void *unused)
 	return NULL;
 }
 
-void host_watch_start(void)
-{
-	mutexInit(&watch_lock);
-	verify = host_config_boolean("debug.watch_verify");
-}
-
 /* ---------- the guest's interface (memory_watch.c) */
 
 void host_memory_watch_initialize(void)
 {
 	if (started)
 		return;
+	verify = host_config_boolean("debug.watch_verify");
 	if (host_native_thread_create(watch_thread, NULL, 64 * 1024, _host_thread_background) != 0)
 		host_fatal("Cannot start the write tracking thread.");
 	started = 1;
@@ -243,7 +241,29 @@ uint32_t host_memory_watch_serial(void)
 	return __atomic_load_n(&watch_serial, __ATOMIC_ACQUIRE);
 }
 
+/* as Linux's: only watched pages are marked (an unwatched one's copy is
+taken, and its generation read, when the renderer next watches it); the
+lock, and a new serial, only when the range has one */
 void host_memory_watch_prepare_write(uint32_t address, uint32_t size)
+{
+	uint32_t first, last, page;
+
+	if (!page_range(address, size, &first, &last))
+		return;
+	for (page = first; page <= last && !(page_flags[page] & _page_watched); page++)
+		;
+	if (page > last)
+		return;
+	mutexLock(&watch_lock);
+	for (; page <= last; page++)
+	{
+		if (page_flags[page] & _page_watched)
+			page_written(page);
+	}
+	mutexUnlock(&watch_lock);
+}
+
+void host_memory_watch_forget(uint32_t address, uint32_t size)
 {
 	uint32_t first, last, page;
 
@@ -253,9 +273,4 @@ void host_memory_watch_prepare_write(uint32_t address, uint32_t size)
 	for (page = first; page <= last; page++)
 		page_written(page);
 	mutexUnlock(&watch_lock);
-}
-
-void host_memory_watch_forget(uint32_t address, uint32_t size)
-{
-	host_memory_watch_prepare_write(address, size);
 }
