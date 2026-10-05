@@ -57,7 +57,7 @@ until it is redrawn, or drawn blank (`blank` below: port_settings.BLANK_FRAMES, 
 | --- | --- | --- |
 | `ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__8.png` | blank | `shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__8.png` |
 
-0 of 144 frames are placeholders, 1 drawn blank.
+0 of 156 frames are placeholders, 1 drawn blank.
 
 The PC version's `ui\gamespy` and `ui\ticker` fonts are drawn with `ui\small_ui`, which
 the Xbox's map has.

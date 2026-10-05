@@ -393,6 +393,20 @@ int main(int argc, char *argv[])
 	if (host_load_image(image, image_size) != 0)
 		host_fatal("Cannot load the game; see host.log in /switch/halo.");
 	free(image);
+	/* internet play's MQTT brokers (network.brokers_file): the program's
+	list, written beside config.toml at each start, as a desktop update
+	replaces the file beside its game */
+	{
+		size_t brokers_size = 0;
+		void *brokers = read_file("romfs:/brokers.txt", &brokers_size);
+		FILE *file = brokers ? fopen(HOST_DATA_ROOT "/brokers.txt", "wb") : NULL;
+
+		if (!file || fwrite(brokers, 1, brokers_size, file) != brokers_size)
+			host_logf(HOST_LOG_ERROR, "cannot write " HOST_DATA_ROOT "/brokers.txt");
+		if (file)
+			fclose(file);
+		free(brokers);
+	}
 	romfsExit();
 	appletSetCpuBoostMode(ApmCpuBoostMode_Normal);
 	if (!file_exists(HOST_DATA_ROOT "/maps/ui.map"))

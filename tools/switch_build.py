@@ -195,6 +195,8 @@ def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path, 
 
     # the program: the host, its metadata and icon, the guest in its RomFS
     n.build(outputs=romfs / "halo_guest.elf", rule="switch_copy", inputs=image)
+    # internet play's MQTT brokers, which the host writes beside config.toml
+    n.build(outputs=romfs / "brokers.txt", rule="switch_copy", inputs=Path("port/assets/network/brokers.txt"))
     # (the version when it is built, again at each commit or checkout)
     n.rule(
         name="switch_nacp",
@@ -216,5 +218,6 @@ def _generate_host(n: Writer, devkitpro: Path, image: Path, import_table: Path, 
         command=f"{tools}/elf2nro $in $out --nacp={nacp} --icon={icon} --romfsdir={romfs} > /dev/null",
         description="SWITCH NRO $out",
     )
-    n.build(outputs=nro, rule="switch_nro", inputs=elf, implicit=[nacp, icon, romfs / "halo_guest.elf"])
+    n.build(outputs=nro, rule="switch_nro", inputs=elf,
+            implicit=[nacp, icon, romfs / "halo_guest.elf", romfs / "brokers.txt"])
     n.build(outputs="switch", rule="phony", inputs=nro)
