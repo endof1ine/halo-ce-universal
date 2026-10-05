@@ -142,4 +142,4 @@ def test_guest_syscall_table_has_the_64_bit_lseek():
     table = (ROOT / "port/android/guest/libc/arch/arm64_32/bits/syscall.h.in").read_text()
     assert "#define __NR__llseek\t65536" in table
     assert "case 65536" in (ROOT / "port/android/host/host_syscall.c").read_text()
-    assert "GUEST_SYS_llseek 65536" in (ROOT / "port/switch/host/host_syscall.c").read_text()
+    assert "case SYS__llseek" in (ROOT / "port/switch/host/host_syscall.c").read_text()

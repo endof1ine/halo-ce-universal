@@ -49,11 +49,6 @@ void host_logf(int priority, const char *format, ...)
 	va_end(arguments);
 }
 
-void host_log(int priority, const char *text)
-{
-	__android_log_write(priority, "halo", text);
-}
-
 void host_fatal(const char *format, ...)
 {
 	char message[1024];
@@ -90,11 +85,6 @@ int host_errno(void)
 
 static char data_root[512];
 static char save_root[512];
-
-void host_android_path(int which, char *buffer, uint32_t size)
-{
-	snprintf(buffer, size, "%s", which ? save_root : data_root);
-}
 
 /* (the Switch's host reads some settings itself; this one reads none) */
 void host_config_changed(void)

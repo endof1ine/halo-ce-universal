@@ -84,6 +84,14 @@ static float screen_scale[2] = { 1.0f, 1.0f };
 static long ui_offset;
 #define UI_OFFSET ((GLint)ui_offset)
 
+static unsigned long long monotonic_ns(void)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (unsigned long long)now.tv_sec * 1000000000ULL + (unsigned long long)now.tv_nsec;
+}
+
 #ifdef HALO_SWITCH
 /* ---------- dynamic resolution
 
@@ -113,14 +121,6 @@ static struct
 	unsigned long long presented_ns, changed_ns;
 } dynamic;
 
-static unsigned long long dynamic_now_ns(void)
-{
-	struct timespec now;
-
-	clock_gettime(CLOCK_MONOTONIC, &now);
-	return (unsigned long long)now.tv_sec * 1000000000ULL + (unsigned long long)now.tv_nsec;
-}
-
 static double dynamic_resolution_scale(double configured)
 {
 	if (!dynamic.enabled)
@@ -149,7 +149,7 @@ static void dynamic_resolution_start(void)
 a step taken when a window of frames calls for one */
 static void dynamic_resolution_frame(void)
 {
-	unsigned long long now = dynamic_now_ns();
+	unsigned long long now = monotonic_ns();
 	GLuint oldest, available = 0, elapsed = 0;
 
 	if (!dynamic.enabled)
@@ -1428,10 +1428,6 @@ int halo_ui_pointer_update(int menus_active, struct halo_ui_pointer *pointer)
 	return 0;
 }
 #else
-#ifdef HALO_SWITCH
-/* the host's (guest_host.h) */
-int host_touch_taps(int *x, int *y);
-#endif
 
 /* a point in the window, as SDL reports it (on the Switch, on its
 touchscreen), in the menus' coordinates: the inverse of the letterboxed
@@ -2535,14 +2531,6 @@ static void shader_warm_draw(GLuint program)
 /* the most of a map's loading the warm-up takes on the game's thread
 (mesa's 40 ms a program adds up) */
 #define SHADER_WARM_SECONDS 8ULL
-
-static unsigned long long shader_warm_now_ns(void)
-{
-	struct timespec now;
-
-	clock_gettime(CLOCK_MONOTONIC, &now);
-	return (unsigned long long)now.tv_sec * 1000000000ULL + (unsigned long long)now.tv_nsec;
-}
 #endif
 
 void xgpu_shader_warm_map(const char *map)
@@ -2552,7 +2540,6 @@ void xgpu_shader_warm_map(const char *map)
 	FILE *file;
 	unsigned long warmed = 0, records = 0, late = 0;
 	unsigned long long start;
-	struct timespec time;
 	BOOL stale = FALSE;
 
 	if (shader_warm_file)
@@ -2568,8 +2555,7 @@ void xgpu_shader_warm_map(const char *map)
 	file = fopen(path, "rb");
 	if (!file)
 		return;
-	clock_gettime(CLOCK_MONOTONIC, &time);
-	start = (unsigned long long)time.tv_sec * 1000000000ULL + (unsigned long long)time.tv_nsec;
+	start = monotonic_ns();
 	while (fread(&record, sizeof(record), 1, file) == 1)
 	{
 		struct vertex_shader_object *program;
@@ -2594,7 +2580,7 @@ void xgpu_shader_warm_map(const char *map)
 #ifdef HALO_SWITCH
 		/* (at most SHADER_WARM_SECONDS of the loading, on the game's
 		thread: the rest at their first draws, the first recorded first) */
-		if (shader_warm_now_ns() - start > SHADER_WARM_SECONDS * 1000000000ULL)
+		if (monotonic_ns() - start > SHADER_WARM_SECONDS * 1000000000ULL)
 		{
 			late++;
 			continue;
@@ -2624,11 +2610,8 @@ void xgpu_shader_warm_map(const char *map)
 		glBindVertexArray(device.vertex_array);
 		xgpu_gl_state_invalidate();
 	}
-	clock_gettime(CLOCK_MONOTONIC, &time);
 	platform_log("shader warm-up: %lu of %lu programs of %s in %llu ms; %lu left for their first draws", warmed,
-		records, shader_warm_map,
-		((unsigned long long)time.tv_sec * 1000000000ULL + (unsigned long long)time.tv_nsec - start) / 1000000ULL,
-		late);
+		records, shader_warm_map, (monotonic_ns() - start) / 1000000ULL, late);
 }
 
 /* ---------- per-draw state */
@@ -2672,66 +2655,14 @@ static struct
 static unsigned int sampler_cache_count;
 #endif
 
-/* the stage's sampler, bound, for its texture stage state */
-static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
+/* a sampler's parameters, from configure_sampler's inputs: the filters
+(min, mip, mag), the address modes (u, v, w), the LOD bias, the largest mip
+level, the anisotropy and the border colour */
+static void sampler_parameters(GLuint sampler, const DWORD inputs[11])
 {
-	/* the texture stage state each sampler was last configured from */
-	static DWORD configured[D3DTSS_MAXSTAGES][11];
-	static BOOL configured_valid[D3DTSS_MAXSTAGES];
-	GLuint sampler = device.samplers[stage];
-	DWORD *state = D3D__TextureState[stage];
-	DWORD min_filter = hires ? D3DTEXF_LINEAR : state[D3DTSS_MINFILTER];
-	DWORD mip_filter = hires ? D3DTEXF_LINEAR : mipmapped ? state[D3DTSS_MIPFILTER] : D3DTEXF_NONE;
-	DWORD mag_filter = hires ? D3DTEXF_LINEAR : state[D3DTSS_MAGFILTER];
-	DWORD maximum_mip_level = hires ? 0 : state[D3DTSS_MAXMIPLEVEL];
-	DWORD lod_bias = hires ? 0 : state[D3DTSS_MIPMAPLODBIAS];
+	DWORD min_filter = inputs[0], mip_filter = inputs[1], mag_filter = inputs[2];
 	GLenum minification;
 	float border[4];
-	DWORD inputs[11];
-
-	inputs[0] = min_filter;
-	inputs[1] = mip_filter;
-	inputs[2] = mag_filter;
-	inputs[3] = state[D3DTSS_ADDRESSU];
-	inputs[4] = state[D3DTSS_ADDRESSV];
-	inputs[5] = state[D3DTSS_ADDRESSW];
-	inputs[6] = lod_bias;
-	inputs[7] = maximum_mip_level;
-	inputs[8] = state[D3DTSS_MAXANISOTROPY];
-	inputs[9] = state[D3DTSS_BORDERCOLOR];
-	inputs[10] = hires;
-#ifdef HALO_SWITCH
-	{
-		unsigned int index;
-
-		for (index = 0; index < sampler_cache_count; index++)
-		{
-			if (!memcmp(sampler_cache[index].inputs, inputs, sizeof(inputs)))
-			{
-				state_sampler(stage, sampler_cache[index].sampler);
-				return;
-			}
-		}
-		/* (a new one, configured below; a full cache reuses the stage's own) */
-		if (sampler_cache_count < SAMPLER_CACHE)
-		{
-			glGenSamplers(1, &sampler);
-			memcpy(sampler_cache[sampler_cache_count].inputs, inputs, sizeof(inputs));
-			sampler_cache[sampler_cache_count++].sampler = sampler;
-			configured_valid[stage] = FALSE;
-		}
-		state_sampler(stage, sampler);
-	}
-	if (sampler != device.samplers[stage])
-		goto configure;
-#endif
-	if (configured_valid[stage] && !memcmp(configured[stage], inputs, sizeof(inputs)))
-		return;
-	memcpy(configured[stage], inputs, sizeof(inputs));
-	configured_valid[stage] = TRUE;
-#ifdef HALO_SWITCH
-configure:
-#endif
 
 	if (min_filter == D3DTEXF_POINT)
 		minification = mip_filter == D3DTEXF_NONE ? GL_NEAREST :
@@ -2741,31 +2672,94 @@ configure:
 			mip_filter == D3DTEXF_POINT ? GL_LINEAR_MIPMAP_NEAREST : GL_LINEAR_MIPMAP_LINEAR;
 	glSamplerParameteri(sampler, GL_TEXTURE_MIN_FILTER, (GLint)minification);
 	glSamplerParameteri(sampler, GL_TEXTURE_MAG_FILTER, mag_filter == D3DTEXF_POINT ? GL_NEAREST : GL_LINEAR);
-	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, (GLint)address_mode(state[D3DTSS_ADDRESSU]));
-	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, (GLint)address_mode(state[D3DTSS_ADDRESSV]));
-	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_R, (GLint)address_mode(state[D3DTSS_ADDRESSW]));
+	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_S, (GLint)address_mode(inputs[3]));
+	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_T, (GLint)address_mode(inputs[4]));
+	glSamplerParameteri(sampler, GL_TEXTURE_WRAP_R, (GLint)address_mode(inputs[5]));
 #ifdef HALO_GUEST
 	/* ES has no sampler LOD bias; the pixel shader applies it
 	(texture_lod_bias) */
-	glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, (float)maximum_mip_level);
+	glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, (float)inputs[7]);
 	if (xgpu_capabilities.anisotropy)
 		glSamplerParameterf(sampler, GL_TEXTURE_MAX_ANISOTROPY_EXT,
-			(min_filter == D3DTEXF_ANISOTROPIC && state[D3DTSS_MAXANISOTROPY] > 1) ? (float)state[D3DTSS_MAXANISOTROPY] : 1.0f);
+			(min_filter == D3DTEXF_ANISOTROPIC && inputs[8] > 1) ? (float)inputs[8] : 1.0f);
 	if (xgpu_capabilities.border_clamp)
 	{
-		color_to_vec4(state[D3DTSS_BORDERCOLOR], border);
+		color_to_vec4(inputs[9], border);
 		glSamplerParameterfv(sampler, GL_TEXTURE_BORDER_COLOR, border);
 	}
 #else
-	glSamplerParameterf(sampler, GL_TEXTURE_LOD_BIAS, dword_to_float(lod_bias));
-	glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, (float)maximum_mip_level);
+	glSamplerParameterf(sampler, GL_TEXTURE_LOD_BIAS, dword_to_float(inputs[6]));
+	glSamplerParameterf(sampler, GL_TEXTURE_MIN_LOD, (float)inputs[7]);
 	glSamplerParameterf(sampler, GL_TEXTURE_MAX_ANISOTROPY,
-		(min_filter == D3DTEXF_ANISOTROPIC && state[D3DTSS_MAXANISOTROPY] > 1) ? (float)state[D3DTSS_MAXANISOTROPY] : 1.0f);
-	color_to_vec4(state[D3DTSS_BORDERCOLOR], border);
+		(min_filter == D3DTEXF_ANISOTROPIC && inputs[8] > 1) ? (float)inputs[8] : 1.0f);
+	color_to_vec4(inputs[9], border);
 	glSamplerParameterfv(sampler, GL_TEXTURE_BORDER_COLOR, border);
 #endif
 }
 
+/* the stage's sampler, bound, for its texture stage state */
+static void configure_sampler(int stage, BOOL mipmapped, BOOL hires)
+{
+	DWORD *state = D3D__TextureState[stage];
+	DWORD inputs[11];
+
+	inputs[0] = hires ? D3DTEXF_LINEAR : state[D3DTSS_MINFILTER];
+	inputs[1] = hires ? D3DTEXF_LINEAR : mipmapped ? state[D3DTSS_MIPFILTER] : D3DTEXF_NONE;
+	inputs[2] = hires ? D3DTEXF_LINEAR : state[D3DTSS_MAGFILTER];
+	inputs[3] = state[D3DTSS_ADDRESSU];
+	inputs[4] = state[D3DTSS_ADDRESSV];
+	inputs[5] = state[D3DTSS_ADDRESSW];
+	inputs[6] = hires ? 0 : state[D3DTSS_MIPMAPLODBIAS];
+	inputs[7] = hires ? 0 : state[D3DTSS_MAXMIPLEVEL];
+	inputs[8] = state[D3DTSS_MAXANISOTROPY];
+	inputs[9] = state[D3DTSS_BORDERCOLOR];
+	inputs[10] = hires;
+#ifdef HALO_SWITCH
+	{
+		/* the cache entry each stage last used, plus 1 (0 none) */
+		static unsigned int stage_entry[D3DTSS_MAXSTAGES];
+		unsigned int entry = stage_entry[stage];
+
+		if (!entry || memcmp(sampler_cache[entry - 1].inputs, inputs, sizeof(inputs)))
+		{
+			for (entry = 1; entry <= sampler_cache_count; entry++)
+			{
+				if (!memcmp(sampler_cache[entry - 1].inputs, inputs, sizeof(inputs)))
+					break;
+			}
+			if (entry > sampler_cache_count)
+			{
+				/* (a full cache: the stage's own sampler, set each time) */
+				if (sampler_cache_count == SAMPLER_CACHE)
+				{
+					stage_entry[stage] = 0;
+					sampler_parameters(device.samplers[stage], inputs);
+					state_sampler(stage, device.samplers[stage]);
+					return;
+				}
+				entry = ++sampler_cache_count;
+				glGenSamplers(1, &sampler_cache[entry - 1].sampler);
+				memcpy(sampler_cache[entry - 1].inputs, inputs, sizeof(inputs));
+				sampler_parameters(sampler_cache[entry - 1].sampler, inputs);
+			}
+			stage_entry[stage] = entry;
+		}
+		state_sampler(stage, sampler_cache[entry - 1].sampler);
+	}
+#else
+	{
+		/* the texture stage state each sampler was last configured from */
+		static DWORD configured[D3DTSS_MAXSTAGES][11];
+		static BOOL configured_valid[D3DTSS_MAXSTAGES];
+
+		if (configured_valid[stage] && !memcmp(configured[stage], inputs, sizeof(inputs)))
+			return;
+		memcpy(configured[stage], inputs, sizeof(inputs));
+		configured_valid[stage] = TRUE;
+		sampler_parameters(device.samplers[stage], inputs);
+	}
+#endif
+}
 
 /* ---------- render targets sampled with their mip chain
 
@@ -3899,8 +3893,8 @@ static unsigned long index_upload(const void *data, unsigned long size)
 
 	size = (size + 15) & ~15UL;
 #ifdef HALO_SWITCH
-	if (device.index_offset + size > INDEX_BUFFER_SIZE)
-		buffer_ring_advance();
+	/* (the draw reserved it; this for one that did not) */
+	index_reserve(size / sizeof(WORD));
 	state_element_array_buffer(device.index_buffer);
 #else
 	state_element_array_buffer(device.index_buffer);

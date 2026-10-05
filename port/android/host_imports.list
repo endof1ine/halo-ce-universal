@@ -1,7 +1,6 @@
 # Host functions the guest imports (declared in port/android/guest/runtime/guest_host.h,
 # defined in port/android/host). tools/android_imports.py generates the stubs.
 host_syscall
-host_log
 host_abort
 host_exit
 host_get_tp
@@ -49,7 +48,6 @@ host_gl_read_buffer_word
 host_gl_buffer_write
 host_gl_fence_frame
 host_gl_wait_frame
-host_android_path
 
 host_errno
 

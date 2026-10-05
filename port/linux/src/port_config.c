@@ -400,8 +400,7 @@ static const struct config_setting config_settings[] =
 #define NUMBER_OF_CONFIG_SETTINGS (sizeof(config_settings) / sizeof(config_settings[0]))
 
 #ifdef HALO_SWITCH
-/* the host's (guest_host.h) */
-void host_config_changed(void);
+#include "guest_host.h"
 #endif
 
 #if defined(HALO_SWITCH)

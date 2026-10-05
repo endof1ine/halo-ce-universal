@@ -894,8 +894,7 @@ void platform_request_quit(void)
 }
 
 #ifdef HALO_SWITCH
-/* the host's (guest_host.h) */
-void host_cpu_boost(int boost);
+#include "guest_host.h"
 #endif
 
 /* a map loading (main.c's main_new_map), which draws nothing meanwhile: on

@@ -69,10 +69,7 @@ this list to generate the guest's entry points */
 	X(glTexImage3D) \
 	X(glTexSubImage2D) \
 	X(glTexStorage2D) \
-	X(glTexStorage3D) \
-	X(glTexSubImage3D) \
 	X(glCompressedTexSubImage2D) \
-	X(glCompressedTexSubImage3D) \
 	X(glCompressedTexImage2D) \
 	X(glCompressedTexImage3D) \
 	X(glTexParameteri) \
@@ -119,7 +116,6 @@ this list to generate the guest's entry points */
 	X(glGetShaderInfoLog) \
 	X(glDeleteShader) \
 	X(glCreateProgram) \
-	X(glDeleteProgram) \
 	X(glAttachShader) \
 	X(glBindAttribLocation) \
 	X(glLinkProgram) \
@@ -292,10 +288,7 @@ pointers, sees the declarations without these aliases */
 #define glTexImage3D halo_glTexImage3D
 #define glTexSubImage2D halo_glTexSubImage2D
 #define glTexStorage2D halo_glTexStorage2D
-#define glTexStorage3D halo_glTexStorage3D
-#define glTexSubImage3D halo_glTexSubImage3D
 #define glCompressedTexSubImage2D halo_glCompressedTexSubImage2D
-#define glCompressedTexSubImage3D halo_glCompressedTexSubImage3D
 #define glCompressedTexImage2D halo_glCompressedTexImage2D
 #define glCompressedTexImage3D halo_glCompressedTexImage3D
 #define glTexParameteri halo_glTexParameteri
@@ -342,7 +335,6 @@ pointers, sees the declarations without these aliases */
 #define glGetShaderInfoLog halo_glGetShaderInfoLog
 #define glDeleteShader halo_glDeleteShader
 #define glCreateProgram halo_glCreateProgram
-#define glDeleteProgram halo_glDeleteProgram
 #define glAttachShader halo_glAttachShader
 #define glBindAttribLocation halo_glBindAttribLocation
 #define glLinkProgram halo_glLinkProgram

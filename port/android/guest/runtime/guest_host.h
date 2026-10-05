@@ -20,8 +20,6 @@ structures whose layout differs; returns the raw result (-errno on failure) */
 long long host_syscall(long long number, long long a, long long b, long long c,
 	long long d, long long e, long long f);
 
-/* Android log priorities (android/log.h) */
-void host_log(int priority, const char *text);
 void host_abort(const char *reason) __attribute__((noreturn));
 void host_exit(int code) __attribute__((noreturn));
 /* the host's errno on this thread, after a call to a host function */
@@ -100,11 +98,6 @@ void host_gl_buffer_write(unsigned int target, unsigned int offset, unsigned int
 the GPU to finish the work last fenced for a slot */
 void host_gl_fence_frame(unsigned int slot);
 void host_gl_wait_frame(unsigned int slot);
-
-/* ---------- Android */
-
-/* the storage directories the port uses, copied into buffer */
-void host_android_path(int which, char *buffer, unsigned int size);
 
 /* ---------- movies (port/linux/src/bink_host.c, on the Switch)
 

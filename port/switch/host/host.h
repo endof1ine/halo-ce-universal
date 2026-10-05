@@ -25,7 +25,7 @@ paths) */
 /* ---------- logging (host_main.c): to host.log and the nxlink host */
 
 void host_logf(int priority, const char *format, ...) __attribute__((format(printf, 2, 3)));
-/* Android's log priorities, which the guest passes to host_log */
+/* Android's log priorities */
 #define HOST_LOG_INFO 4
 #define HOST_LOG_WARN 5
 #define HOST_LOG_ERROR 6
@@ -72,10 +72,6 @@ results */
 long host_guest_mmap(uint64_t address, uint64_t size, int protection, int flags, int fd, int64_t offset);
 long host_guest_munmap(uint64_t address, uint64_t size);
 long host_guest_mprotect(uint64_t address, uint64_t size, int protection);
-
-/* ---------- write tracking (host_watch.c) */
-
-void host_watch_start(void);
 
 /* ---------- the guest image (host_loader.c) */
 
@@ -133,8 +129,6 @@ void host_run_guest_main(uint32_t boot) __attribute__((noreturn));
 
 /* ---------- SDL services (host_sdl.c, host_input.c, host_audio.c) */
 
-/* the applet's messages, once a frame from the event pump */
-void host_sdl_applet_update(void);
 void host_input_initialize(void);
 /* input.button_positions and the gyro's settings, from config.toml */
 void host_input_settings_read(void);

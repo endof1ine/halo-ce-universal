@@ -19,11 +19,8 @@ RADEXPLINK is __stdcall.
 #include <string.h>
 #include <time.h>
 
-/* the host's movies (guest_host.h) */
-unsigned int host_bink_open(const char *path, unsigned int *description);
-int host_bink_decode(unsigned int movie);
-void host_bink_copy(unsigned int movie, void *destination, int pitch, unsigned int height);
-void host_bink_close(unsigned int movie);
+/* the host's movies: host_bink_* */
+#include "guest_host.h"
 
 typedef void *(__stdcall *rad_memory_allocate_proc)(unsigned long size);
 typedef void (__stdcall *rad_memory_free_proc)(void *memory);

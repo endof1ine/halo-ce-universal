@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional
 
 from .linux_build import MINIUPNPC_DEFINES, MINIUPNPC_DIR, miniupnpc_sources
 from .embed_assets import hud_configure_inputs
-from .guest_build import (MUSL_VERSION, TOML_DIR, GuestPort, fetch_musl, generate_guest_image,
+from .guest_build import (MUSL_VERSION, SDL_TAG, SDL_URL, TOML_DIR, GuestPort, fetch_musl, generate_guest_image,
                           guest_configure_inputs)
 from .ninja_syntax import Writer
 
@@ -36,9 +36,7 @@ LINUX_DIR = Path("port/linux")
 BUILD = Path("build/android")
 THIRD_PARTY = BUILD / "third_party"
 MUSL_DIR = THIRD_PARTY / f"musl-{MUSL_VERSION}"
-SDL_TAG = "release-3.4.16"
 SDL_DIR = THIRD_PARTY / "SDL3"
-SDL_URL = "https://github.com/libsdl-org/SDL.git"
 ANDROID_API = 28
 
 # the Android guest's defines and processor (tools/guest_build.py)

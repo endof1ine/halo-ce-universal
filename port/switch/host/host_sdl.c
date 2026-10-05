@@ -101,7 +101,7 @@ static void surface_resize(int docked);
 
 /* the applet's messages: HOME and sleep take the focus, the system asks
 the program to close */
-void host_sdl_applet_update(void)
+static void host_sdl_applet_update(void)
 {
 	static AppletFocusState focus = AppletFocusState_InFocus;
 	static AppletOperationMode mode = AppletOperationMode_Handheld;

@@ -19,7 +19,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .guest_build import GuestPort, fetch_musl, generate_guest_image, guest_configure_inputs
+from .guest_build import (SDL_TAG, SDL_URL, TOML_DIR, GuestPort, fetch_musl, generate_guest_image,
+                          guest_configure_inputs)
 from .embed_assets import hud_configure_inputs
 from .linux_build import MINIUPNPC_DEFINES, MINIUPNPC_DIR, miniupnpc_sources
 from .ninja_syntax import Writer
@@ -28,9 +29,7 @@ PORT_DIR = Path("port/switch")
 LINUX_DIR = Path("port/linux")
 BUILD = Path("build/switch")
 THIRD_PARTY = BUILD / "third_party"
-SDL_TAG = "release-3.4.16"
 SDL_DIR = THIRD_PARTY / "SDL3"
-SDL_URL = "https://github.com/libsdl-org/SDL.git"
 
 # the Switch guest's defines and processor (tools/guest_build.py)
 GUEST_ABI_FLAGS = [
@@ -120,7 +119,6 @@ HOST_ARCH = "-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIE"
 # Bink only and under the LGPL, not devkitPro's, which is built with the GPL)
 HOST_LIBRARIES = ["avformat", "avcodec", "swscale", "swresample", "avutil", "EGL", "glapi", "drm_nouveau", "nx"]
 FFMPEG_DEFAULT = Path("/opt/halo-ffmpeg")
-TOML_DIR = Path("port/third_party/tomlc17")
 
 
 VERSION_COMMAND = "git describe --tags --always --dirty"

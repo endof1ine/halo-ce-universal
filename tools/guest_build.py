@@ -28,6 +28,9 @@ GUEST_DIR = Path("port/android")
 LINUX_DIR = Path("port/linux")
 # the TOML parser config.toml is read with (port/linux/src/port_config.c)
 TOML_DIR = Path("port/third_party/tomlc17")
+# the SDL3 whose API the guests are written against
+SDL_TAG = "release-3.4.16"
+SDL_URL = "https://github.com/libsdl-org/SDL.git"
 EXPAT_DIR = Path("port/third_party/expat")
 EXPAT_SOURCES = ("xmlparse.c", "xmlrole.c", "xmltok.c")
 KCP_DIR = Path("port/third_party/kcp")

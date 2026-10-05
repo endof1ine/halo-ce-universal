@@ -60,8 +60,6 @@ Standard output and error go to the log.
 #define LINUX_SIGABRT 6
 #define LINUX_DT_DIR 4
 #define LINUX_DT_REG 8
-/* the guest's _llseek (port/android/guest/libc/arch/arm64_32/bits/syscall.h.in) */
-#define GUEST_SYS_llseek 65536
 
 /* the guest's structures */
 struct guest_timespec
@@ -892,7 +890,7 @@ long long host_syscall(long long number, long long a, long long b, long long c, 
 
 		return result ? result : (position > 0x7fffffffll ? -75 /* EOVERFLOW */ : (long)position);
 	}
-	case GUEST_SYS_llseek:
+	case SYS__llseek:
 	{
 		int64_t position;
 		long result = guest_lseek(a, (int64_t)(((uint64_t)(uint32_t)b << 32) | (uint32_t)c), (int)e, &position);

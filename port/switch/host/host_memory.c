@@ -54,8 +54,6 @@ arena's among them */
 #define CHUNK 0x200000ull
 #define ARENA_MAXIMUM_PAGES (ARENA_MAXIMUM / PAGE)
 #define ARENA_MAXIMUM_CHUNKS (ARENA_MAXIMUM / CHUNK)
-#define ARENA_BASE arena_base
-#define ARENA_END arena_end
 #define ARENA_PAGES ((arena_end - arena_base) / PAGE)
 
 /* the guest's (Linux's) mmap arguments */
@@ -183,15 +181,15 @@ static int fresh_pages(uint64_t address, uint64_t size, uint32_t permission)
 
 /* ---------- start-up */
 
-static const char *check_free(uint64_t base, uint64_t end, const char *what)
+/* the system's own regions (heap, alias, stack): unmapped, yet not free.
+1 if [base, end) meets one, which is [*region_start, *region_end) */
+static int in_system_region(uint64_t base, uint64_t end, uint64_t *region_start, uint64_t *region_end)
 {
 	static const InfoType regions[][2] = {
 		{InfoType_HeapRegionAddress, InfoType_HeapRegionSize},
 		{InfoType_AliasRegionAddress, InfoType_AliasRegionSize},
 		{InfoType_StackRegionAddress, InfoType_StackRegionSize},
 	};
-	static char reason[192];
-	uint64_t address = base;
 	unsigned index;
 
 	for (index = 0; index < sizeof(regions) / sizeof(*regions); index++)
@@ -200,12 +198,26 @@ static const char *check_free(uint64_t base, uint64_t end, const char *what)
 
 		svcGetInfo(&start, regions[index][0], CUR_PROCESS_HANDLE, 0);
 		svcGetInfo(&size, regions[index][1], CUR_PROCESS_HANDLE, 0);
-		if (start < end && base < start + size)
+		if (size && start < end && base < start + size)
 		{
-			host_logf(HOST_LOG_WARN, "%s: the system's region %u is at %010llx-%010llx", what, index,
-				(unsigned long long)start, (unsigned long long)(start + size));
-			goto taken;
+			*region_start = start;
+			*region_end = start + size;
+			return 1;
 		}
+	}
+	return 0;
+}
+
+static const char *check_free(uint64_t base, uint64_t end, const char *what)
+{
+	static char reason[192];
+	uint64_t address = base, region_start, region_end;
+
+	if (in_system_region(base, end, &region_start, &region_end))
+	{
+		host_logf(HOST_LOG_WARN, "%s: a system region is at %010llx-%010llx", what,
+			(unsigned long long)region_start, (unsigned long long)region_end);
+		goto taken;
 	}
 	while (address < end)
 	{
@@ -230,31 +242,6 @@ taken:
 	return reason;
 }
 
-/* the system's own regions (heap, alias, stack): unmapped, yet not free */
-static int in_system_region(uint64_t base, uint64_t end, uint64_t *region_end)
-{
-	static const InfoType regions[][2] = {
-		{InfoType_HeapRegionAddress, InfoType_HeapRegionSize},
-		{InfoType_AliasRegionAddress, InfoType_AliasRegionSize},
-		{InfoType_StackRegionAddress, InfoType_StackRegionSize},
-	};
-	unsigned index;
-
-	for (index = 0; index < sizeof(regions) / sizeof(*regions); index++)
-	{
-		u64 start = 0, size = 0;
-
-		svcGetInfo(&start, regions[index][0], CUR_PROCESS_HANDLE, 0);
-		svcGetInfo(&size, regions[index][1], CUR_PROCESS_HANDLE, 0);
-		if (size && start < end && base < start + size)
-		{
-			*region_end = start + size;
-			return 1;
-		}
-	}
-	return 0;
-}
-
 /* the arena's range: the preferred one if free, else the largest free run
 from ARENA_LOWEST to 4 GB, by chunks, outside the system's regions; 0 if
 none is ARENA_MINIMUM */
@@ -269,7 +256,7 @@ static int arena_choose(void)
 	{
 		MemoryInfo memory;
 		u32 page_info;
-		uint64_t next, region_end;
+		uint64_t next, region_start, region_end;
 		int usable;
 
 		if (R_FAILED(svcQueryMemory(&memory, &page_info, address)))
@@ -279,7 +266,7 @@ static int arena_choose(void)
 		usable = memory.type == MemType_Unmapped && memory.addr + memory.size >= next &&
 			!(address < IMAGE_END && WINDOW_BASE < next) &&
 			!(address < CUSTOM_EDITION_END && CUSTOM_EDITION_BASE < next) &&
-			!in_system_region(address, next, &region_end);
+			!in_system_region(address, next, &region_start, &region_end);
 		if (usable && !in_run)
 		{
 			run_base = address;
@@ -408,7 +395,7 @@ static int chunks_commit(uint64_t first_page, uint64_t count)
 	{
 		if (arena_chunk_committed[chunk])
 			continue;
-		if (commit(ARENA_BASE + chunk * CHUNK, CHUNK, NULL, 0, Perm_Rw) != 0)
+		if (commit(arena_base + chunk * CHUNK, CHUNK, NULL, 0, Perm_Rw) != 0)
 			return -1;
 		arena_chunk_committed[chunk] = 1;
 	}
@@ -429,7 +416,7 @@ static void *arena_map(uint64_t size, uint32_t permission)
 	{
 		pages_mark(first, count, 1);
 		arena_hint = first + count;
-		result = (void *)(ARENA_BASE + first * PAGE);
+		result = (void *)(arena_base + first * PAGE);
 	}
 	mutexUnlock(&memory_lock);
 	if (result && fresh_pages((uint64_t)result, count * PAGE, permission) != 0)
@@ -450,15 +437,15 @@ void host_low_unmap(void *address, size_t size)
 	uint64_t start = (uint64_t)address;
 	uint64_t length = round_up(size);
 
-	if (!in_range(start, length, ARENA_BASE, ARENA_END))
+	if (!in_range(start, length, arena_base, arena_end))
 		return;
 	/* (the pages keep their permission: each change splits the kernel's
 	memory blocks, which a process has a limited number of, and musl's
 	malloc maps and unmaps often) */
 	mutexLock(&memory_lock);
-	pages_mark((start - ARENA_BASE) / PAGE, length / PAGE, 0);
-	if ((start - ARENA_BASE) / PAGE < arena_hint)
-		arena_hint = (start - ARENA_BASE) / PAGE;
+	pages_mark((start - arena_base) / PAGE, length / PAGE, 0);
+	if ((start - arena_base) / PAGE < arena_hint)
+		arena_hint = (start - arena_base) / PAGE;
 	mutexUnlock(&memory_lock);
 }
 
@@ -468,10 +455,10 @@ static int arena_owns(uint64_t address, uint64_t length)
 	uint64_t page;
 	int owned = 1;
 
-	if (!in_range(address, length, ARENA_BASE, ARENA_END))
+	if (!in_range(address, length, arena_base, arena_end))
 		return 0;
 	mutexLock(&memory_lock);
-	for (page = (address - ARENA_BASE) / PAGE; page < (address + length - ARENA_BASE) / PAGE; page++)
+	for (page = (address - arena_base) / PAGE; page < (address + length - arena_base) / PAGE; page++)
 	{
 		if (!page_used(page))
 		{
